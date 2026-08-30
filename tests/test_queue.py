@@ -1,0 +1,206 @@
+"""The queue's state machine.
+
+Each test corresponds to a behaviour observed by running ElasticMQ (an SQS-compatible
+server) — not to a reading of the documentation. See ARCHITECTURE.md §4.
+
+The clock is injected: tests advance time instead of sleeping, so the suite runs in
+milliseconds and has no races.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.models import Event, EventIn
+from app.queue import InMemoryEventQueue, QueueFull, ReceiptHandleIsInvalid
+
+
+class FakeClock:
+    """A hand-driven monotonic clock."""
+
+    def __init__(self) -> None:
+        self._t = 1000.0
+
+    def __call__(self) -> float:
+        return self._t
+
+    def advance(self, seconds: float) -> None:
+        self._t += seconds
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+def queue(clock: FakeClock) -> InMemoryEventQueue:
+    return InMemoryEventQueue(visibility_timeout=30.0, max_receives=3, clock=clock)
+
+
+def make_event(user: str = "u1") -> Event:
+    return Event.from_input(
+        EventIn(event_type="pageview", user_id=user, source_url="https://example.com/a")
+    )
+
+
+# --------------------------------------------------------------------------
+# The happy path
+# --------------------------------------------------------------------------
+
+
+async def test_send_then_receive_returns_the_event(queue: InMemoryEventQueue) -> None:
+    event = make_event()
+    await queue.send(event)
+
+    [message] = await queue.receive()
+
+    assert message.event.event_id == event.event_id
+    assert message.receive_count == 1
+    assert message.receipt_handle
+
+
+async def test_delete_is_the_ack_and_removes_it_permanently(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    await queue.send(make_event())
+    [message] = await queue.receive()
+
+    await queue.delete(message.receipt_handle)
+
+    # Even once the visibility timeout lapses it does not return: the delete is final.
+    clock.advance(120)
+    assert await queue.receive() == []
+    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 0}
+
+
+# --------------------------------------------------------------------------
+# The invisible state
+# --------------------------------------------------------------------------
+
+
+async def test_while_lent_out_no_one_else_can_see_it(queue: InMemoryEventQueue) -> None:
+    await queue.send(make_event())
+    await queue.receive()
+
+    # Another worker asks for work at the same instant: nothing is available.
+    assert await queue.receive() == []
+    assert queue.stats()["in_flight"] == 1
+
+
+async def test_when_the_timeout_lapses_it_returns_with_the_counter_incremented(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    await queue.send(make_event())
+    [first] = await queue.receive()
+
+    clock.advance(31)  # the worker died and never deleted
+
+    [second] = await queue.receive()
+
+    assert second.receive_count == 2
+    assert second.event.event_id == first.event.event_id
+    # Nobody re-enqueued it by hand: the retry is the absence of a delete.
+
+
+async def test_the_old_handle_becomes_invalid_after_redelivery(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    """Closes the zombie-worker race.
+
+    A stalls, the message is redelivered to B, B completes it, and then A revives and
+    issues its delete. Without handle invalidation, A would delete someone else's work.
+    """
+    await queue.send(make_event())
+    [a] = await queue.receive()
+
+    clock.advance(31)
+    [b] = await queue.receive()
+
+    assert a.receipt_handle != b.receipt_handle
+    with pytest.raises(ReceiptHandleIsInvalid):
+        await queue.delete(a.receipt_handle)
+    # And B's work still stands.
+    await queue.delete(b.receipt_handle)
+
+
+# --------------------------------------------------------------------------
+# Backoff and the dead-letter queue
+# --------------------------------------------------------------------------
+
+
+async def test_the_backoff_lengthens_invisibility_on_each_attempt(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    """The backoff is not a separate mechanism: it is the visibility timeout growing."""
+    await queue.send(make_event())
+
+    await queue.receive()  # attempt 1 -> invisible for 30s
+    clock.advance(31)
+    await queue.receive()  # attempt 2 -> invisible for 60s
+
+    clock.advance(31)  # enough for the first timeout, not for the second
+    assert await queue.receive() == []
+
+    clock.advance(31)  # now it is
+    assert len(await queue.receive()) == 1
+
+
+async def test_exhausting_the_attempts_routes_it_to_the_dead_letter_queue(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    event = make_event()
+    await queue.send(event)
+
+    for _ in range(3):  # max_receives=3
+        assert await queue.receive()
+        clock.advance(10_000)  # lapse any backoff
+
+    assert await queue.receive() == []
+    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 1}
+    assert queue.dead_letters()[0].event_id == event.event_id
+
+
+# --------------------------------------------------------------------------
+# Heartbeat and backpressure
+# --------------------------------------------------------------------------
+
+
+async def test_change_visibility_extends_the_loan(
+    queue: InMemoryEventQueue, clock: FakeClock
+) -> None:
+    """For long jobs: "still alive, give me more time"."""
+    await queue.send(make_event())
+    [message] = await queue.receive()
+
+    await queue.change_visibility(message.receipt_handle, 300)
+
+    clock.advance(31)  # the original timeout would have lapsed
+    assert await queue.receive() == []
+
+
+async def test_a_bounded_queue_refuses_instead_of_dying(clock: FakeClock) -> None:
+    """Backpressure.
+
+    An unbounded queue protects nothing: it grows until the process runs out of memory
+    and takes everything queued with it. Rejecting is honest; accepting and dying later
+    is not. The API translates this to a 429.
+    """
+    small = InMemoryEventQueue(maxsize=2, clock=clock)
+    await small.send(make_event())
+    await small.send(make_event())
+
+    with pytest.raises(QueueFull):
+        await small.send(make_event())
+
+
+async def test_receive_respects_max_n(queue: InMemoryEventQueue) -> None:
+    for _ in range(5):
+        await queue.send(make_event())
+
+    messages = await queue.receive(max_n=3)
+
+    assert len(messages) == 3
+    # Distinct handles: every delivery is an independent loan.
+    assert len({m.receipt_handle for m in messages}) == 3
+    assert queue.stats() == {"visible": 2, "in_flight": 3, "dlq": 0}
