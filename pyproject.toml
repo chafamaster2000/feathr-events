@@ -1,0 +1,50 @@
+[project]
+name = "feathr-events"
+version = "0.1.0"
+description = "Distributed Event Processing Platform - Feathr take-home"
+# Acotado por arriba a proposito: el Dockerfile corre 3.13-slim, y sin el techo uv
+# resuelve al 3.14 del sistema. Tests pasando en un interprete distinto al de
+# produccion es una trampa silenciosa. Ver .python-version.
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    # Driver Mongo async NATIVO. NO usar motor: deprecado el 2026-05-14.
+    "pymongo==4.17.0",
+    "redis==8.1.0",
+    # El major DEBE coincidir con el del servidor ES (9.x).
+    # El extra [async] trae aiohttp: sin el, AsyncElasticsearch tira
+    # "You must have 'aiohttp' installed to use AiohttpHttpNode" al arrancar.
+    "elasticsearch[async]==9.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov>=7.0",
+    "httpx==0.28.1",
+    "ruff==0.16.4",
+]
+
+# Sin [build-system] a proposito: esto es una app, no una libreria.
+# uv lo trata como proyecto virtual y no intenta construir un wheel.
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# La raiz del repo en sys.path: `app` es un paquete del proyecto, no una lib instalada
+# (tool.uv.package = false, asi que no hay wheel que lo ponga ahi).
+pythonpath = ["."]
+markers = [
+    "integration: corre contra el stack real de docker compose (make up). Se saltea si no esta arriba.",
+]

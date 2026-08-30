@@ -1,0 +1,115 @@
+name: feathr-events
+
+services:
+  # --------------------------------------------------------------------------
+  # Store primario. Fuente de verdad de los eventos.
+  # --------------------------------------------------------------------------
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    # Kernel 6.19-7.0.13 rompe el tcmalloc que trae mongo 8.0+ (SERVER-121912):
+    # viola el ABI de rseq y el proceso muere al arrancar. Este tunable lo evita.
+    # Se saca cuando el host pase a kernel 7.0.14+.
+    environment:
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # Indice derivado para full-text search. Reconstruible desde Mongo.
+  # --------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    restart: unless-stopped
+    environment:
+      # Un solo nodo: sin quorum, sin replicas. Solo para desarrollo local.
+      discovery.type: single-node
+      # 9.x arranca con TLS + password obligatorios. Los desactivamos para local
+      # y lo documentamos como decision de dev, NO como default de produccion.
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms${ES_HEAP:-512m} -Xmx${ES_HEAP:-512m}"
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      # wait_for_status=yellow: con un solo nodo las replicas nunca se asignan,
+      # asi que el cluster jamas llega a "green". Esperar green = colgarse.
+      test:
+        - CMD-SHELL
+        - curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+
+  # --------------------------------------------------------------------------
+  # Cache. Guarda respuestas calculadas, nunca datos que no se puedan perder.
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    # Persistencia apagada a proposito: si es un cache, sobrevivir a un reinicio
+    # no es un requisito. Menos I/O y menos latencia en el p99.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # API. Por ahora solo /health.
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      # Nombres de servicio de compose, no localhost: cada contenedor tiene su
+      # propio loopback.
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: feathr
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    # Hot reload en desarrollo. Se saca para produccion.
+    volumes:
+      - ./app:/srv/app:ro
+    command:
+      - uvicorn
+      - app.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --reload
+    depends_on:
+      # Sin esto la API arranca antes que ES este listo y parece un bug de
+      # conexion cuando en realidad es una carrera de arranque.
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mongo-data:
+  es-data:

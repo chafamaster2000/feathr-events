@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Entorno local
+.env
+
+# Logs del harness (efímeros, se regeneran)
+.logs/
+
+# Tracker local de /wayfinder
+.scratch/
+
+# Estado por-máquina de Claude Code (las skills y agentes SÍ se commitean)
+.claude/settings.local.json
+
+# Claude Code tooling — stays out of the submission.
+# .mcp.json and .claude/settings.json carry absolute paths from the machine they were
+# generated on, plus hooks that call a `framework` binary this repository no longer
+# depends on. The skills under .claude/skills/ are third-party content, not this
+# project's work. CLAUDE.md is kept: it documents the invariants, and it is ours.
+.claude/
+.mcp.json
