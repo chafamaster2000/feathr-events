@@ -1,0 +1,70 @@
+"""Caching layer: Redis in front of exactly one read.
+
+The cache does not wrap everything. It sits in front of the only endpoint whose contract
+already admits it returns a snapshot rather than the truth: `/events/stats/realtime`.
+
+**No invalidation, TTL only.** Not a shortcut — a decision with an argument. Precise
+invalidation would require knowing which cached entries each incoming event affects, i.e.
+evaluating every key against every write. In a pipeline built for high write volume, that
+costs more than the aggregation being avoided.
+
+And the TTL does not introduce the staleness: **it already exists upstream**. Ingestion is
+asynchronous, so an accepted event is not in MongoDB yet. The TTL adds no new
+inconsistency; it puts a known ceiling on the inconsistency that was already there.
+
+See ARCHITECTURE.md §3.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from typing import Any
+
+from redis.asyncio import Redis
+
+log = logging.getLogger(__name__)
+
+PREFIX = "feathr:stats"
+
+
+class StatsCache:
+    def __init__(self, redis: Redis, ttl_seconds: int = 30) -> None:
+        self._redis = redis
+        self._ttl = ttl_seconds
+
+    @property
+    def ttl(self) -> int:
+        return self._ttl
+
+    def key(self, **params: Any) -> str:
+        """Derive a key from normalised parameters.
+
+        Keys are sorted so that `?bucket=daily&type=click` and `?type=click&bucket=daily`
+        share an entry: they are the same question.
+        """
+        canonical = json.dumps(
+            {k: v for k, v in sorted(params.items()) if v is not None}, default=str
+        )
+        return f"{PREFIX}:{hashlib.sha256(canonical.encode()).hexdigest()[:16]}"
+
+    async def get(self, key: str) -> dict[str, Any] | None:
+        """A Redis failure must NEVER break a read.
+
+        The cache is an optimisation, not a dependency: if it fails, the cost is
+        recomputing. Propagating the error would turn a performance degradation into an
+        outage.
+        """
+        try:
+            raw = await self._redis.get(key)
+        except Exception:
+            log.warning("cache read failed; recomputing", exc_info=True)
+            return None
+        return json.loads(raw) if raw else None
+
+    async def set(self, key: str, value: dict[str, Any]) -> None:
+        try:
+            await self._redis.set(key, json.dumps(value, default=str), ex=self._ttl)
+        except Exception:
+            log.warning("cache write failed; continuing", exc_info=True)
