@@ -75,6 +75,7 @@ export default function Dashboard() {
             if (n === 1) void trace.run()
             else void ingest.burst(n)
           }}
+          onClearRuns={() => ingest.clearRuns()}
           onReset={() => {
             setMode('trace')
             trace.clear()

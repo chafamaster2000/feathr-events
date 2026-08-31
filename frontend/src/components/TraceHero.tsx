@@ -25,11 +25,12 @@ interface Props {
   eventId: string | null
   busy: string | null
   last: string | null
-  runs: Record<number, Run>
+  runs: Run[]
   /** Which question the last action asked: one event, or a batch. */
   mode: 'trace' | 'burst'
   onIngest: (n: number) => void
   onReset: () => void
+  onClearRuns: () => void
 }
 
 export default function TraceHero({
@@ -44,6 +45,7 @@ export default function TraceHero({
   mode,
   onIngest,
   onReset,
+  onClearRuns,
 }: Props) {
   const working = running || busy !== null
 
@@ -83,8 +85,6 @@ export default function TraceHero({
           </AnimatePresence>
         </div>
       </div>
-
-      <RunTable runs={runs} />
 
       <PipelineDiagram
         health={health}
@@ -126,6 +126,10 @@ export default function TraceHero({
           <span>event_id {eventId}</span>
         </div>
       )}
+
+      {/* Last, because it is the record rather than the event: the reader watches the
+          drawing, then reads the hops, then compares this run against the ones before. */}
+      <RunTable runs={runs} onClear={onClearRuns} />
     </div>
   )
 }

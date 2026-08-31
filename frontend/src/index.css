@@ -254,8 +254,48 @@ tr:last-child td { border-bottom: none; }
   .readout { text-align: left; }
 }
 
+/* ---- pipeline flow markers ---- */
+/* One clock for the whole drawing. The markers are mounted once and never unmounted, so
+   every edge shares a single time origin — mounting them per health poll gave each edge
+   its own origin, which is why they drifted apart. Traffic gates opacity and the play
+   state; a pause freezes the phase rather than losing it, so they resume in step. */
+.flow { opacity: 0; transition: opacity 700ms ease-out; }
+.flow[data-on='true'] { opacity: 1; transition: opacity 180ms ease-in; }
+.flow circle {
+  animation-name: flow-dot;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  /* Paused at rest: an idle dashboard should not be repainting a motion path forever. */
+  animation-play-state: paused;
+}
+/* The tail outlives the traffic by design — markers in flight finish their crossing
+   while the group fades, instead of blinking out halfway down an edge. */
+svg[data-motion='on'] .flow circle { animation-play-state: running; }
+
+@keyframes flow-dot {
+  0%   { offset-distance: 0%;   opacity: 0 }
+  16%  { opacity: 1 }
+  84%  { opacity: 1 }
+  100% { offset-distance: 100%; opacity: 0 }
+}
+
+/* A perpetual loop is exactly the motion this setting exists to stop. The arrows still
+   light up, so the diagram keeps saying where the work is going. */
+@media (prefers-reduced-motion: reduce) {
+  .flow { display: none }
+}
+
 /* ---- what each burst size costs ---- */
-.runs { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); max-width: 560px; }
+.runs { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); max-width: 640px; }
+.runs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  margin-bottom: 10px; }
+.runs-head h2 { margin: 0; font-size: .72rem; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted); }
+/* A destructive-but-cheap action: it throws away local measurements and nothing else, so
+   it reads as a link rather than competing with Reset, which empties the databases. */
+button.link { border: none; background: none; padding: 0; font-size: .8rem; color: var(--muted);
+  text-decoration: underline; text-underline-offset: 3px; }
+button.link:hover { color: var(--navy); }
 .runs table { font-size: .92rem; }
 .runs th { font-size: .68rem; }
 .runs td { padding: 7px 10px; }

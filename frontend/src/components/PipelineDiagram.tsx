@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { DepthSample, Health, TraceStep } from '../domain/types'
 
 /**
@@ -93,14 +93,65 @@ const STAGES: Stage[] = [
   },
 ]
 
-const EDGES: { from: StageId; to: StageId; d: string; label: string; step?: number }[] = [
-  { from: 'client', to: 'api', d: 'M112 122 L148 122', label: 'POST', step: 0 },
-  { from: 'api', to: 'queue', d: 'M264 122 L300 122', label: 'send()', step: 0 },
-  { from: 'queue', to: 'worker', d: 'M428 122 L464 122', label: 'receive()', step: 0 },
-  { from: 'worker', to: 'mongo', d: 'M584 112 L620 112 L620 52 L652 52', label: '1 · upsert', step: 1 },
-  { from: 'worker', to: 'es', d: 'M584 132 L620 132 L620 192 L652 192', label: '2 · index', step: 2 },
+/** Which stream an edge belongs to. `undefined` means it never carries traffic. */
+type Channel = 'intake' | 'dequeue' | 'write'
+
+interface Edge {
+  from: StageId
+  to: StageId
+  d: string
+  label: string
+  /** Which trace step lights this edge. */
+  step?: number
+  /** Position in the chain, so a traced event visibly moves edge to edge. */
+  order?: number
+  channel?: Channel
+}
+
+const RAW: Edge[] = [
+  { from: 'client', to: 'api', d: 'M112 122 L148 122', label: 'POST', step: 0, order: 0, channel: 'intake' },
+  { from: 'api', to: 'queue', d: 'M264 122 L300 122', label: 'send()', step: 0, order: 1, channel: 'intake' },
+  { from: 'queue', to: 'worker', d: 'M428 122 L464 122', label: 'receive()', step: 0, order: 2, channel: 'dequeue' },
+  { from: 'worker', to: 'mongo', d: 'M584 112 L620 112 L620 52 L652 52', label: '1 · upsert', step: 1, order: 0, channel: 'write' },
+  { from: 'worker', to: 'es', d: 'M584 132 L620 132 L620 192 L652 192', label: '2 · index', step: 2, order: 0, channel: 'write' },
   { from: 'redis', to: 'api', d: 'M366 196 L366 160 L208 160 L208 152', label: 'cached read' },
 ]
+
+/**
+ * Length of a straight-segment path. Every edge here is a polyline, so summing the
+ * segments is exact — and deriving speed and spacing from it beats hand-tuned numbers
+ * that go stale the moment a box moves.
+ */
+function pathLength(d: string): number {
+  const points = d
+    .trim()
+    .split(/(?=[ML])/)
+    .map((seg) => seg.slice(1).trim().split(/[ ,]+/).map(Number))
+  let total = 0
+  for (let i = 1; i < points.length; i += 1) {
+    total += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+  }
+  return total
+}
+
+// One pace and one density for the whole drawing, both derived from each path's own
+// length. A fixed duration per edge was most of what read as "out of step": the same 1.1s
+// made a marker crawl across a 36px gap and race down a 128px one, so nothing in the
+// picture agreed about how fast an event moves.
+const SPEED = 108 // px per second
+const SPACING = 46 // px between markers on one edge
+
+const EDGES = RAW.map((e) => {
+  const len = pathLength(e.d)
+  return { ...e, dur: len / SPEED, dots: Math.max(1, Math.round(len / SPACING)) }
+})
+
+// Traffic keeps moving this long after the last positive reading, so markers in flight
+// finish their crossing. Cutting them off mid-path was the animation not ending — a dot
+// halfway down an edge simply ceased to exist.
+const FLOW_TAIL_MS = 700
+const TRACE_S = 0.8 // one marker crossing one edge
+const TRACE_LAG_S = 0.26 // and the next edge picks it up, so the event reads as moving
 
 export default function PipelineDiagram({
   health,
@@ -139,30 +190,48 @@ export default function PipelineDiagram({
   const backlog = health ? health.queue.visible : 0
   const inFlight = health ? health.queue.in_flight : 0
 
-  const flow = {
+  const flow: Record<Channel, boolean> = {
     intake: ingesting,
     dequeue: inFlight > 0 || completing,
     write: completing,
   }
+  const moving = flow.intake || flow.dequeue || flow.write
+
+  // The markers are mounted once and never unmounted. That is the whole fix for the
+  // drift: gating them on `flows` tore them down and rebuilt them on every health poll,
+  // and each rebuild restarted that edge's clock on its own, so the edges wandered out of
+  // phase with each other within seconds. Traffic now gates opacity and the play state
+  // instead — and pausing preserves phase, so the drawing always comes back in step.
+  const [motionOn, setMotionOn] = useState(false)
+  useEffect(() => {
+    if (moving) {
+      setMotionOn(true)
+      return
+    }
+    const stop = setTimeout(() => setMotionOn(false), FLOW_TAIL_MS)
+    return () => clearTimeout(stop)
+  }, [moving])
   // Enough backlog to tint the node, capped so a burst does not saturate it instantly.
   const load = Math.min(1, backlog / 120)
 
+  // Each number sits on the component that owns it. `processed` is the worker's counter —
+  // it counts messages taken off the queue and written, which is work the API never does.
+  // Parked on the FastAPI box it read as "requests served", a number this system does not
+  // keep and which would mean something else entirely.
   const live: Partial<Record<StageId, string>> = {
     queue: health ? `${health.queue.visible + health.queue.in_flight} queued` : '',
-    worker: health ? `${health.worker.consumers} consumers` : '',
-    api: health ? `${health.worker.processed} processed` : '',
+    // Pinned locale: the browser's default put a dot in 14.008, which an English reader
+    // takes for a decimal. Everything in this repo is English, formatting included.
+    worker: health ? `${health.worker.processed.toLocaleString('en-US')} processed` : '',
   }
+  // The ×N stops being a placeholder once /health answers.
+  const labelFor = (s: Stage) =>
+    s.id === 'worker' && health ? `Worker ×${health.worker.consumers}` : s.label
 
-  const isLit = (step?: number) => step !== undefined && (reached > step || (settled && step > 0))
+  /** The traced event crossed here. Only this drives the single marker. */
+  const traced = (step?: number) => step !== undefined && reached > step
+  const isLit = (step?: number) => traced(step) || (settled && step !== undefined && step > 0)
   const stage = STAGES.find((s) => s.id === selected)
-
-  /** Which edges carry flow, independent of any trace. */
-  const flowing = (from: StageId, to: StageId) => {
-    if (from === 'client' || (from === 'api' && to === 'queue')) return flow.intake
-    if (from === 'queue') return flow.dequeue
-    if (from === 'worker') return flow.write
-    return false
-  }
 
   return (
     <div className="diagram">
@@ -170,6 +239,7 @@ export default function PipelineDiagram({
         <svg
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
+          data-motion={motionOn ? 'on' : 'off'}
           role="img"
           aria-label="The ingestion pipeline: producer, API, in-process queue, worker, and the two stores it writes."
         >
@@ -189,9 +259,15 @@ export default function PipelineDiagram({
                 letterSpacing="0.08em">ONE PYTHON PROCESS — “IN-PROCESS”</text>
 
           {EDGES.map((e) => {
+            const crossed = traced(e.step)
             const lit = isLit(e.step)
-            const flows = flowing(e.from, e.to)
+            // A traced edge speaks the single-marker language; it must not also carry the
+            // stream. Note this asks `crossed`, not `lit`: a settled burst lights the two
+            // write edges, and testing `lit` here killed the stream at the exact moment
+            // the burst finished — the one moment the reader is watching.
+            const flows = e.channel !== undefined && flow[e.channel] && !crossed
             const active = lit || flows
+            const lag = (e.order ?? 0) * TRACE_LAG_S
             return (
               <g key={`${e.from}-${e.to}`}>
                 <path d={e.d} fill="none" strokeWidth={active ? 2.2 : 1.4}
@@ -199,24 +275,37 @@ export default function PipelineDiagram({
                       markerEnd={`url(#${active ? 'pl' : 'pa'})`}
                       strokeDasharray={e.from === 'redis' ? '4 4' : undefined} />
 
-                {/* Trace: one marker, once. This event, this crossing. */}
-                {lit && mode === 'trace' && (
-                  <motion.circle r={4.5} fill="var(--cyan)"
-                    initial={{ offsetDistance: '0%' }} animate={{ offsetDistance: '100%' }}
-                    transition={{ duration: 0.8, ease: 'easeInOut' }}
-                    style={{ offsetPath: `path("${e.d}")` }} />
+                {/* Trace: one marker, once — and it leaves when it arrives. Animating to
+                    100% and stopping parked a dot on the arrowhead for as long as the
+                    trace stayed on screen, which read as an animation that never ended.
+                    The lag staggers the chain so the event is seen to travel rather than
+                    appearing on three edges at once. */}
+                {crossed && (
+                  <motion.circle r={5} fill="var(--navy)"
+                    style={{ offsetPath: `path("${e.d}")` }}
+                    initial={{ offsetDistance: '0%', opacity: 0 }}
+                    animate={{ offsetDistance: '100%', opacity: [0, 1, 1, 0] }}
+                    transition={{
+                      offsetDistance: { duration: TRACE_S, delay: lag, ease: 'easeInOut' },
+                      opacity: { duration: TRACE_S, delay: lag, times: [0, 0.14, 0.72, 1] },
+                    }} />
                 )}
 
-                {/* Flow: a stream, while there is traffic. Staggered so it reads as
-                    throughput rather than as one confused dot. */}
-                {flows && !lit &&
-                  [0, 0.33, 0.66].map((delay) => (
-                    <motion.circle key={delay} r={3.2} fill="var(--cyan)"
-                      initial={{ offsetDistance: '0%', opacity: 0 }}
-                      animate={{ offsetDistance: '100%', opacity: [0, 1, 1, 0] }}
-                      transition={{ duration: 1.1, delay, repeat: Infinity, ease: 'linear' }}
-                      style={{ offsetPath: `path("${e.d}")` }} />
-                  ))}
+                {/* Flow: a stream, always mounted, gated by opacity. Marker count comes
+                    from the edge's length so density is even across the drawing, and the
+                    negative delay spaces them without waiting a cycle to fill. */}
+                {e.channel !== undefined && (
+                  <g className="flow" data-on={flows}>
+                    {Array.from({ length: e.dots }, (_, i) => (
+                      <circle key={i} r={3.4} fill="var(--navy)"
+                        style={{
+                          offsetPath: `path("${e.d}")`,
+                          animationDuration: `${e.dur.toFixed(3)}s`,
+                          animationDelay: `${(-(e.dur * i) / e.dots).toFixed(3)}s`,
+                        }} />
+                    ))}
+                  </g>
+                )}
               </g>
             )
           })}
@@ -247,7 +336,7 @@ export default function PipelineDiagram({
                   strokeWidth={active ? 2.2 : 1.4}
                 />
                 <text x={s.x + s.w / 2} y={s.y + (live[s.id] ? 22 : 30)} textAnchor="middle"
-                      fontSize={13} fontWeight={700} fill="var(--navy)">{s.label}</text>
+                      fontSize={13} fontWeight={700} fill="var(--navy)">{labelFor(s)}</text>
                 {live[s.id] && (
                   <text x={s.x + s.w / 2} y={s.y + 38} textAnchor="middle" fontSize={10.5}
                         fill="var(--muted)">{live[s.id]}</text>
