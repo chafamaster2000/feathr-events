@@ -1,4 +1,4 @@
-.PHONY: up down logs health rebuild clean lint
+.PHONY: up down logs health rebuild clean lint seed reindex logcheck
 
 up:            ## Start the whole stack
 	@mkdir -p .logs/agent && chmod -R 777 .logs
@@ -18,6 +18,15 @@ rebuild:       ## Rebuild without cache
 
 clean:         ## Stop everything and DELETE volumes (data is lost)
 	docker compose down -v
+
+seed:          ## Fill the stores with realistic events, through the API
+	uv run python scripts/seed.py $(ARGS)
+
+reindex:       ## Rebuild the Elasticsearch index from MongoDB
+	uv run python scripts/reindex.py $(ARGS)
+
+logcheck:      ## Warnings and errors from all four containers, in one stream
+	uv run python scripts/logcheck.py $(ARGS)
 
 lint:
 	uv run ruff check app && uv run ruff format --check app

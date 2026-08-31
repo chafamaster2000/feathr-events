@@ -202,9 +202,17 @@ proxies `/api` to FastAPI — which is why the backend needs no CORS configurati
 ## Seeding and recovery
 
 ```bash
-python3 scripts/seed.py --count 2000 --days 7    # realistic events, through the API
-python3 scripts/reindex.py --recreate            # rebuild Elasticsearch from MongoDB
+make seed                              # 2000 events across 7 days, through the API
+make seed ARGS="--count 500 --days 2"  # or pass your own
+make reindex ARGS="--recreate"         # rebuild Elasticsearch from MongoDB
+make logcheck                          # warnings from all four containers, unified
 ```
+
+These go through `uv run`, because the scripts import the project's dependencies —
+`scripts/seed.py` needs an HTTP client and `scripts/reindex.py` reuses the same
+Elasticsearch adapter the worker uses, so the document shape cannot drift between the
+live path and the recovery path. A bare `python3 scripts/seed.py` works only if those
+happen to be installed globally.
 
 `seed.py` writes with `POST /events` rather than straight into the stores. Writing
 directly would be faster and would prove nothing — it would skip the queue, the worker and

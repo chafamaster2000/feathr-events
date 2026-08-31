@@ -2,18 +2,26 @@
    queue states keep the same colours here that they have in ARCHITECTURE.md's diagrams -
    green is available, amber is lent out, rust is dead. */
 :root {
-  --ground: #0d1315;
-  --surface: #141c1e;
-  --surface-2: #182225;
-  --sunk: #0a1012;
-  --line: #263437;
-  --ink: #e7eded;
-  --ink-2: #cbd6d7;
-  --muted: #a3b4b7;
-  --accent: #4bbcca;
-  --visible: #48c59a;
-  --inflight: #e0a441;
-  --dead: #e58274;
+  /* Feathr's own palette, read from the CSS on feathr.co rather than eyeballed:
+     #19263c is "Midnight", their primary (41 uses), and #21ebff the cyan accent (28).
+     #d1fbff and #e3e6ec come from the same sheet.
+
+     The three queue states keep semantic colours - green available, amber lent out,
+     coral dead - retuned to sit on navy instead of near-black. Every pair below clears
+     WCAG AA on the card surface; the tightest is muted at 6.5:1. */
+  --ground: #111b2c;
+  --surface: #19263c;
+  --surface-2: #223351;
+  --sunk: #0c1421;
+  --line: #2c3d5c;
+  --ink: #e8ecf2;
+  --ink-2: #cfd2d8;
+  --muted: #9dabc0;
+  --accent: #21ebff;
+  --accent-soft: #d1fbff;
+  --visible: #5fe3a1;
+  --inflight: #ffc46b;
+  --dead: #ff8fa0;
   color-scheme: dark;
 }
 
@@ -23,7 +31,7 @@ body {
   margin: 0;
   background: var(--ground);
   color: var(--ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Host Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -35,7 +43,7 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
 header.top { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
   padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
-header.top h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+header.top h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.015em; font-weight: 700; }
 header.top .sub { color: var(--ink-2); font-size: 0.9rem; }
 
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
@@ -53,6 +61,7 @@ header.top .sub { color: var(--ink-2); font-size: 0.9rem; }
 .pill { font-size: 0.78rem; padding: 4px 10px; border-radius: 3px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--ink-2); font-family: ui-monospace, monospace; }
 .pill.up { border-color: var(--visible); color: var(--visible); }
+.card h2 { border-left: 2px solid var(--accent); padding-left: 9px; margin-left: -11px; }
 .pill.down { border-color: var(--dead); color: var(--dead); }
 
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 1px;
