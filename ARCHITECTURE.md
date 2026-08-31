@@ -133,6 +133,7 @@ afterwards.
 | `_id` (= `event_id`) | Idempotency | The most important index, and it serves no query. Without it the queue's at-least-once delivery duplicates events |
 | `{event_type: 1, timestamp: -1}` (`type_time`) | `GET /events` by type, `GET /events/stats` | Equality first |
 | `{user_id: 1, timestamp: -1}` (`user_time`) | `GET /events` by user | `user_id` is highly selective |
+| `{timestamp: -1}` (`time_desc`) | `GET /events/stats/realtime` | The live window filters by time and nothing else. See below — this one was argued *against* first, and the argument was right until the query existed |
 
 Verified rather than assumed — `explain("executionStats")` on a filtered, sorted query:
 
@@ -152,8 +153,15 @@ A 1:1 key-to-document ratio means no document is fetched and discarded, and ther
   that justifies running both.
 - `source_url` alone — low selectivity. An index returning 30% of a collection costs more
   than the scan it replaces.
-- `timestamp` alone — already the suffix of both compound indexes, and no query filters
-  on date without another predicate. Every extra index is a slower write on the hot path.
+- ~~`timestamp` alone~~ — **this one was created later, and the reversal is worth
+  recording.** The argument against it was that it is already the suffix of both compound
+  indexes and no query filtered on date without another predicate. The first half is true
+  and irrelevant: a suffix is not a prefix, so a query leading with `timestamp` cannot use
+  either. The second half was true until `/events/stats/realtime` started serving a live
+  window, which filters by time and nothing else. A view polling that every two seconds
+  was scanning the whole collection — measured at **620 documents examined, 0 index
+  keys**. With `time_desc` it examines index keys instead. Every extra index is still a
+  slower write on the hot path; this one now buys more than it costs.
 
 **Elasticsearch mapping.** Explicit, because dynamic inference gets the important field
 wrong:
