@@ -1,14 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import type { useStats } from '../application/useStats'
+import { colorFor } from '../domain/palette'
 import LiveChart from './LiveChart'
 import type { Bucket } from '../infrastructure/api'
 import type { Stats } from '../domain/types'
-
-// Categorical palette anchored on the client's navy and cyan, extended with hues that
-// stay distinguishable on white. Semantic colours are NOT reused here: green does not
-// mean "good" in a category legend, it means "conversion".
-const SERIES = ['#19263c', '#0d9bb4', '#7b5cd6', '#c47f0a', '#0b7a52', '#c02434']
 
 // Named for what each one is, not for the route that serves it. The endpoint is called
 // `/events/stats/realtime` and is the only *stale* read in the system — "realtime" in the
@@ -66,7 +62,7 @@ function Chart({ stats }: { stats: Stats | null }) {
       <div className="legend" style={{ marginBottom: 10 }}>
         {types.map((t, i) => (
           <span key={t}>
-            <i style={{ background: SERIES[i % SERIES.length] }} />
+            <i style={{ background: colorFor(i) }} />
             {t}
           </span>
         ))}
@@ -100,7 +96,7 @@ function Chart({ stats }: { stats: Stats | null }) {
                       initial={{ height: 0, y: H - 20 }}
                       animate={{ height: h, y: H - 20 - acc }}
                       transition={{ duration: 0.35, delay: ci * 0.006 }}
-                      fill={SERIES[ti % SERIES.length]}
+                      fill={colorFor(ti)}
                       rx={bw > 6 ? 2 : 0}
                     >
                       <title>{`${bucket} · ${t}: ${v}`}</title>
@@ -174,7 +170,8 @@ export default function StatsPanel({
   stats: ReturnType<typeof useStats>
 }) {
   const [tab, setTab] = useState<TabId>('query')
-  const { query, realtime, stale, latency, cacheAgeMs } = stats
+  const { query, realtime, stale, latency, cacheAgeMs, computedAt, loadingQuery, reloadQuery } =
+    stats
 
   const shown = tab === 'query' ? query : realtime
 
@@ -248,10 +245,21 @@ export default function StatsPanel({
       <div className="swap">
         <div className="swap-view" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
           <Chart stats={query} />
+          <div className="row" style={{ marginTop: 10 }}>
+            <span className="pill">
+              {computedAt
+                ? `computed ${Math.round((Date.now() - computedAt) / 1000)}s ago`
+                : 'computing…'}
+            </span>
+            <button onClick={() => void reloadQuery()} disabled={loadingQuery}
+                    style={{ padding: '6px 14px', fontSize: '.85rem' }}>
+              {loadingQuery ? 'Recomputing…' : 'Recompute'}
+            </button>
+          </div>
           <p className="note">
-            A MongoDB aggregation, computed on every request. <code>$dateTrunc</code> does
-            the bucketing inside the database — pulling the documents out to count them in
-            the application would move data across the network only to discard it.
+            A MongoDB aggregation. <code>$dateTrunc</code> buckets inside the database, so
+            documents never cross the network just to be counted. A snapshot, not a feed —
+            it refetches when you change the bucket, when you ingest, or when you ask.
           </p>
         </div>
 
@@ -272,16 +280,9 @@ export default function StatsPanel({
             )}
           </div>
           <p className="note">
-            Arrivals as they land, in ten-second bins over the last ten minutes. A summary,
-            not a grid: sixty bins across five types would be three hundred rows on an
-            endpoint polled every couple of seconds, so it answers with one dense array of
-            counts and one total per type — a few hundred bytes. Dense matters. The
-            aggregation only finds the bins that hold events, and the gaps are filled
-            server-side, or quiet time would collapse and scattered moments would sit side
-            by side as though they were consecutive. It is the one read served from Redis,
-            because polling constantly is exactly what a cache is for, and its contract
-            promises a recent summary rather than an exact figure — so it can be up to{' '}
-            {realtime?.ttl_seconds ?? 10}s behind, and says so.
+            Arrivals as they land, in ten-second bins over the last ten minutes. The one
+            read served from Redis, so it can be up to {realtime?.ttl_seconds ?? 10}s
+            behind — and says which.
           </p>
         </div>
       </div>

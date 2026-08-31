@@ -139,32 +139,40 @@ it is term-level rather than analysed. The trade-off is explained in `ARCHITECTU
 ### `GET /events/stats/realtime`
 
 A **lightweight stats summary** of recent activity, served from Redis with a configurable
-TTL — totals per type over the last ten minutes, plus one dense array of counts per
-ten-second bin.
+TTL — one dense array of counts per ten-second bin, per event type, over the last ten
+minutes.
 
 It answered with the same hourly aggregation as `/events/stats` at first, and at that
 granularity the current hour is a single bar that grows for sixty minutes: nothing it
 returned could change visibly while you watched it. Fine bins fixed that and broke
-something else — sixty bins across five types is three hundred rows and roughly 22KB on an
-endpoint a live view polls every couple of seconds, which is not a summary. The shape below
-is both: **456 bytes** measured, against 22KB for the grid.
+something else — sixty bins across five types as `{bucket, event_type, count}` rows is
+roughly 22KB on an endpoint a live view polls every couple of seconds, which is not a
+summary.
+
+The weight was in the row objects, not in the numbers. One dense array of integers per
+type carries the same breakdown — enough to stack the chart by type — in **1,049 bytes**,
+measured.
 
 ```jsonc
 {
   "since": "2026-08-31T03:35:00",
   "window_seconds": 600,
   "bin_seconds": 10,
-  "total": 3502,
-  "by_type": [{"event_type": "pageview", "count": 703}, ...],
-  "series": [0, 0, 120, 480, ...],   // 61 ints, oldest to newest, gaps filled
+  "total": 6000,
+  "series": [
+    { "event_type": "add_to_cart", "total": 1176, "counts": [0, 0, 120, 480, ...] },
+    { "event_type": "click",       "total": 1200, "counts": [0, 0, 118, 502, ...] },
+    ...
+  ],
   "cached": true,
   "ttl_seconds": 10
 }
 ```
 
-`series` is dense on purpose. The aggregation only finds the bins that hold events; the
+`counts` is dense on purpose. The aggregation only finds the bins that hold events; the
 gaps are filled server-side, because a client that draws only what comes back renders three
-scattered moments as three consecutive ones.
+scattered moments as three consecutive ones. `series` is sorted by type name rather than by
+volume, so a client assigning colour by position keeps a type's colour between polls.
 
 ### `GET /health`
 

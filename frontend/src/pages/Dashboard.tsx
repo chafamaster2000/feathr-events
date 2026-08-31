@@ -67,21 +67,13 @@ export default function Dashboard() {
   return (
     <div className="shell">
       <header className="top">
-        <span className="wordmark">
-          feathr
-          {/* Drawn here rather than taken from their asset package: this is a candidate's
-              demo styled after their site, not a copy of their brand. */}
-          <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M20 3c-6 0-11 3.5-13 9l-2.5 6.5 1.5 1.5L12 17c5.5-2 8-7 8-14Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinejoin="round"
-            />
-            <path d="M6 18 16 8" fill="none" stroke="currentColor" strokeWidth="2" />
-          </svg>
-        </span>
+        {/* Their actual asset, not a redraw. An approximation of a wordmark is worse than
+            either extreme: it is neither the brand nor honestly distinct from it. Vendored
+            into the repo rather than hotlinked so the page does not depend on their CDN,
+            and so it renders offline. */}
+        <a className="wordmark" href="https://feathr.co" target="_blank" rel="noreferrer noopener">
+          <img src="/brand/Feathr-Lockup-Horizontal-Midnight.svg" alt="Feathr" />
+        </a>
         <SearchBar
           query={search.query}
           open={search.open}
@@ -122,8 +114,13 @@ export default function Dashboard() {
           }}
           onClearRuns={log.clear}
           onReset={() => {
+            // Reset means "start from nothing", and a log of runs against data that no
+            // longer exists is not a clean slate. Earlier this deliberately spared the
+            // history on the grounds that emptying the stores does not invalidate a timing
+            // already taken — true of the numbers, and beside the point of the button.
             setMode('trace')
             trace.clear()
+            log.clear()
             void ingest.reset()
           }}
         />

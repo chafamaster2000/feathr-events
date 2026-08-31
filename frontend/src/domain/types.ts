@@ -80,10 +80,10 @@ export interface LiveSummary {
   window_seconds: number
   bin_seconds: number
   total: number
-  by_type: { event_type: string; count: number }[]
-  /** Counts per bin, dense and ordered oldest to newest. Gaps are zeros, filled by the
+  /** One entry per event type, sorted by name so colour assignment is stable between
+   *  polls. `counts` is dense and ordered oldest to newest — gaps are zeros, filled by the
    *  server, so quiet time occupies space without the client rebuilding the axis. */
-  series: number[]
+  series: { event_type: string; total: number; counts: number[] }[]
   cached: boolean
   ttl_seconds: number
 }

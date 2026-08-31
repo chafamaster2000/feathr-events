@@ -58,9 +58,10 @@ header.top {
   background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 16px 24px; margin-bottom: 22px;
 }
-.wordmark { display: flex; align-items: center; gap: 7px; font-weight: 700;
-  font-size: 1.45rem; letter-spacing: -0.03em; color: var(--navy); }
-.wordmark svg { display: block; }
+/* Sized by height so the lockup keeps its own proportions; it is 583x170 in its own
+   viewBox and any width we invent would distort it. */
+.wordmark { display: inline-flex; align-items: center; flex: none; }
+.wordmark img { display: block; height: 30px; width: auto; }
 header.top .sub { color: var(--muted); font-size: 0.95rem; margin-left: auto;
   max-width: 46ch; text-align: right; }
 

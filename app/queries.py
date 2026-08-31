@@ -168,15 +168,15 @@ class EventQueries:
         bin_seconds: int = LIVE_BIN_SECONDS,
         event_type: str | None = None,
     ) -> dict[str, Any]:
-        """A lightweight summary of recent arrivals — totals per type, plus one dense
-        series of counts per bin.
+        """A lightweight summary of recent arrivals: one dense series of counts per bin,
+        per event type.
 
         Deliberately not the same shape as `stats`. A grid of bin x type is the honest
         thing to *store*, and the wrong thing to send: sixty bins across five types is
-        three hundred rows and roughly 22KB, polled every couple of seconds, for an
-        endpoint whose contract is a lightweight summary. Collapsing to one array of
-        totals plus one row per type is the same information at the resolution anyone can
-        actually read, in a few hundred bytes.
+        three hundred `{bucket, event_type, count}` objects and roughly 22KB, polled every
+        couple of seconds, for an endpoint whose contract is a lightweight summary. The
+        weight is in the row objects, not the numbers — one dense array of counts per type
+        carries the same breakdown in a tenth of the bytes.
 
         The series is dense and ordered oldest to newest. The aggregation only returns
         bins that hold events, so filling the gaps here rather than at the caller is what
@@ -215,25 +215,32 @@ class EventQueries:
         ]
 
         slots = window_seconds // bin_seconds
-        series = [0] * (slots + 1)
-        by_type: dict[str, int] = {}
+        # One dense array per type rather than one row per (bin, type). The grid was
+        # rejected for weight — three hundred `{bucket, event_type, count}` objects is
+        # ~22KB — but that cost is the row objects, not the numbers. Five arrays of sixty
+        # integers carry the same breakdown for a tenth of it, and a client cannot draw a
+        # colour per type without it.
+        per_type: dict[str, list[int]] = {}
         for row in rows:
             index = int((row["_id"]["bin"] - since).total_seconds()) // bin_seconds
-            if 0 <= index < len(series):
-                series[index] += row["count"]
-            by_type[row["_id"]["event_type"]] = (
-                by_type.get(row["_id"]["event_type"], 0) + row["count"]
-            )
+            if not 0 <= index <= slots:
+                continue
+            counts = per_type.setdefault(row["_id"]["event_type"], [0] * (slots + 1))
+            counts[index] += row["count"]
+
+        # Sorted by name, not by volume: a type has to keep its colour between polls, and
+        # the caller assigns colour by position. Ordered by total, a quiet minute would
+        # repaint the whole chart.
+        series = [
+            {"event_type": t, "total": sum(counts), "counts": counts}
+            for t, counts in sorted(per_type.items())
+        ]
 
         return {
             "since": since,
             "window_seconds": window_seconds,
             "bin_seconds": bin_seconds,
-            "total": sum(series),
-            "by_type": [
-                {"event_type": t, "count": c}
-                for t, c in sorted(by_type.items(), key=lambda kv: -kv[1])
-            ],
+            "total": sum(s["total"] for s in series),
             "series": series,
         }
 

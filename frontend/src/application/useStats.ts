@@ -1,17 +1,29 @@
-// Use case: the two aggregation reads, side by side.
+// Use case: the two aggregation reads, each on the cadence its own contract implies.
 //
-// They answer the same question through different paths, and that is the point. Both are
-// kept in state so the panel can show what the cache costs: the drift between an
-// aggregation computed now and one served from Redis within its TTL.
+// They are not variants of one call. `/events/stats` is history — an uncached MongoDB
+// aggregation over hours, days or weeks. `/events/stats/realtime` is a live summary of
+// the last ten minutes, cached, and meant to be polled.
+//
+// Which is why they are loaded differently. Polling the history every two seconds ran an
+// uncached aggregation forever against data that moves on the scale of hours, and it
+// contradicted the one thing that tab is for: it is the view that is deliberately *not*
+// live. It is a snapshot now, refetched when the reader asks for it, when they change the
+// bucket, or when they change the data themselves.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Bucket } from '../infrastructure/api'
 import type { LiveSummary, Stats } from '../domain/types'
 
+const LIVE_POLL_MS = 2000
+
 export function useStats(bucket: Bucket, refreshKey: number) {
   const [query, setQuery] = useState<Stats | null>(null)
+  const [computedAt, setComputedAt] = useState<number | null>(null)
+  const [loadingQuery, setLoadingQuery] = useState(false)
+
   const [realtime, setRealtime] = useState<LiveSummary | null>(null)
   const [stale, setStale] = useState(false)
+
   // How long the cached figure has been standing. The endpoint reports the *configured*
   // TTL, which never moves and therefore says nothing about the value in front of you.
   // The age is derivable here for free: the last poll that came back uncached is the
@@ -23,46 +35,65 @@ export function useStats(bucket: Bucket, refreshKey: number) {
   // figures are inflated and only their difference means anything.
   const [latency, setLatency] = useState<{ query: number; realtime: number } | null>(null)
 
-  const load = useCallback(async () => {
+  // ---- history: on demand ------------------------------------------------------
+  const reloadQuery = useCallback(async () => {
+    setLoadingQuery(true)
+    const started = performance.now()
     try {
-      const startedQuery = performance.now()
-      const qp = api.stats(bucket).then((res) => {
-        setLatency((prev) => ({
-          query: Math.round(performance.now() - startedQuery),
-          realtime: prev?.realtime ?? 0,
-        }))
-        return res
-      })
-      const startedRealtime = performance.now()
-      // No bucket. The two views ask different questions now: one is history at the
-      // granularity you pick, the other is a summary of the last ten minutes at
-      // ten-second resolution. Sharing a bucket made the live view inherit `hourly`, and
-      // at that granularity the current hour is one bar that grows for sixty minutes.
-      const rp = api.liveSummary().then((res) => {
-        setLatency((prev) => ({
-          query: prev?.query ?? 0,
-          realtime: Math.round(performance.now() - startedRealtime),
-        }))
-        return res
-      })
-      const [q, r] = await Promise.all([qp, rp])
-      setQuery(q)
-      setRealtime(r)
-      if (!r.cached) recomputedAt.current = Date.now()
-      setCacheAgeMs(recomputedAt.current === null ? null : Date.now() - recomputedAt.current)
-      setStale(false)
+      const res = await api.stats(bucket)
+      setQuery(res)
+      setComputedAt(Date.now())
+      setLatency((prev) => ({
+        query: Math.round(performance.now() - started),
+        realtime: prev?.realtime ?? 0,
+      }))
     } catch {
-      // Keep the last reading and mark it, rather than blanking the panel. A transient
-      // poll failure is not a reason to discard what the reader is already looking at.
-      setStale(true)
+      // Keep the last reading rather than blanking the panel. A failed refetch is not a
+      // reason to discard what the reader is already looking at.
+    } finally {
+      setLoadingQuery(false)
     }
   }, [bucket])
 
+  // Refetched when the bucket changes, and when this browser has just changed the data.
+  // That is a causal update rather than a timer: the reader did something, so the
+  // snapshot they are looking at is now known to be out of date.
   useEffect(() => {
-    void load()
-    const id = setInterval(() => void load(), 2000)
-    return () => clearInterval(id)
-  }, [load, refreshKey])
+    void reloadQuery()
+  }, [reloadQuery, refreshKey])
 
-  return { query, realtime, stale, cacheAgeMs, latency, reload: load }
+  // ---- live: polled, because that is what makes it live ------------------------
+  const loadLive = useCallback(async () => {
+    const started = performance.now()
+    try {
+      const res = await api.liveSummary()
+      setRealtime(res)
+      if (!res.cached) recomputedAt.current = Date.now()
+      setCacheAgeMs(recomputedAt.current === null ? null : Date.now() - recomputedAt.current)
+      setLatency((prev) => ({
+        query: prev?.query ?? 0,
+        realtime: Math.round(performance.now() - started),
+      }))
+      setStale(false)
+    } catch {
+      setStale(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLive()
+    const id = setInterval(() => void loadLive(), LIVE_POLL_MS)
+    return () => clearInterval(id)
+  }, [loadLive])
+
+  return {
+    query,
+    computedAt,
+    loadingQuery,
+    realtime,
+    stale,
+    cacheAgeMs,
+    latency,
+    reloadQuery,
+  }
 }

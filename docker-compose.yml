@@ -141,6 +141,11 @@ services:
       # would shadow the installed tree.
       - ./frontend/src:/app/src:ro
       - ./frontend/index.html:/app/index.html:ro
+      # Static assets Vite serves from the web root. Without this the container has no
+      # `public/` at all and Vite answers every path under it with the SPA fallback — a
+      # 200 with `Content-Type: text/html`, so an <img> resolves and silently fails to
+      # decode rather than 404ing where you would look for it.
+      - ./frontend/public:/app/public:ro
     depends_on:
       api:
         condition: service_healthy
