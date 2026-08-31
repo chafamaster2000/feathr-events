@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
-import type { DepthSample, Health, QueueStats } from '../domain/types'
+import { AnimatePresence, motion } from 'framer-motion'
+import type { DepthSample, Health, QueueStats, Stats } from '../domain/types'
 import DepthChart from './DepthChart'
 
 /** Dependencies and worker counters. /health returns 503 when any dependency is down. */
@@ -12,11 +12,18 @@ import DepthChart from './DepthChart'
 export default function StatusBar({
   health,
   history,
+  cache,
+  cacheAgeMs,
 }: {
   health: Health | null
   history: DepthSample[]
+  /** The last answer from the cached endpoint. `/health` only proves Redis replies to a
+   *  ping — it says nothing about whether the cache is doing its job. */
+  cache: Stats | null
+  cacheAgeMs: number | null
 }) {
   const deps = health?.dependencies
+  const hit = cache?.cached === true
   return (
     <div className="card span-12">
       <h2>Stack</h2>
@@ -27,6 +34,24 @@ export default function StatusBar({
               {name} {deps?.[name] ?? '…'}
             </span>
           ))}
+          <AnimatePresence mode="popLayout">
+            {cache && (
+              <motion.span
+                key={hit ? 'hit' : 'miss'}
+                className="pill"
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.94 }}
+                transition={{ duration: 0.2 }}
+                style={hit ? { borderColor: 'var(--cyan)', color: 'var(--navy)' } : undefined}
+                title="from /events/stats/realtime — the one read that goes through Redis"
+              >
+                {hit
+                  ? `cache hit · ${Math.round((cacheAgeMs ?? 0) / 1000)}s old`
+                  : 'cache miss · recomputed'}
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
         <div className="pills">
           <span className="pill">
@@ -48,7 +73,8 @@ export default function StatusBar({
       </div>
       <p className="note">
         Four containers, one application process. The API, the queue and the worker share
-        it — the queue is a variable in that process's memory, not a service.
+        it — the queue is a variable in that process's memory, not a service. Redis holds
+        one thing: the answer to the only read whose contract promises a summary.
       </p>
 
       <DepthChart history={history} queue={health?.queue as QueueStats | undefined} />

@@ -1,6 +1,6 @@
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
-import { useStats } from '../application/useStats'
+import type { useStats } from '../application/useStats'
 import type { Bucket } from '../infrastructure/api'
 import type { Stats } from '../domain/types'
 
@@ -16,6 +16,17 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id']
 
 const BUCKETS: Bucket[] = ['hourly', 'daily', 'weekly']
+
+// A bar is a quantity, not a fill for the space available. Unbounded, one bucket became
+// a 720px slab across the whole card and three became three — which is what "the chart
+// does not look right" was: every reading, in both tabs, rendered as a wall.
+const MAX_BAR = 56
+
+/** Short enough to sit under its own bar. The full ISO string never was. */
+function tick(iso: string, bucket?: string) {
+  const [date, time] = iso.replace('T', ' ').split(' ')
+  return bucket === 'hourly' ? (time?.slice(0, 5) ?? iso) : (date?.slice(5) ?? iso)
+}
 
 /** Stacked counts per time bucket, by event type. */
 function Chart({ stats }: { stats: Stats | null }) {
@@ -40,7 +51,10 @@ function Chart({ stats }: { stats: Stats | null }) {
   const W = 720
   const H = 190
   const gap = 3
-  const bw = Math.max(2, (W - gap * (columns.length - 1)) / columns.length)
+  const bw = Math.min(MAX_BAR, Math.max(2, (W - gap * (columns.length - 1)) / columns.length))
+  // Few enough to name each one. The two end labels were the whole axis, and with a
+  // single bucket they printed the same timestamp twice.
+  const perColumn = columns.length <= 10
 
   return (
     <>
@@ -88,28 +102,46 @@ function Chart({ stats }: { stats: Stats | null }) {
             )
           })}
           <line x1={0} x2={W} y1={H - 20} y2={H - 20} stroke="var(--line)" strokeWidth={1.5} />
-          <text x={0} y={H - 5} fontSize={11} fill="var(--muted)" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {columns[0]?.[0].replace('T', ' ').slice(0, 16)}
-          </text>
-          <text
-            x={W}
-            y={H - 5}
-            fontSize={11}
-            fill="var(--muted)"
-            textAnchor="end"
-          >
-            {columns.at(-1)?.[0].replace('T', ' ').slice(0, 16)} · peak {peak}
-          </text>
+          {perColumn
+            ? columns.map(([b], ci) => (
+                <text key={b} x={ci * (bw + gap) + bw / 2} y={H - 5} fontSize={11}
+                      textAnchor="middle" fill="var(--muted)"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {tick(b, stats?.bucket)}
+                </text>
+              ))
+            : [
+                <text key="a" x={0} y={H - 5} fontSize={11} fill="var(--muted)"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {tick(columns[0][0], stats?.bucket)}
+                </text>,
+                <text key="b" x={W} y={H - 5} fontSize={11} fill="var(--muted)" textAnchor="end"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {tick(columns.at(-1)![0], stats?.bucket)}
+                </text>,
+              ]}
         </svg>
       </div>
+      <p className="axis-note">
+        {columns.length} {stats?.bucket ?? ''} bucket{columns.length === 1 ? '' : 's'} ·
+        tallest {peak.toLocaleString('en-US')} events
+      </p>
     </>
   )
 }
 
-export default function StatsPanel({ refreshKey }: { refreshKey: number }) {
+export default function StatsPanel({
+  bucket,
+  onBucket,
+  stats,
+}: {
+  bucket: Bucket
+  onBucket: (b: Bucket) => void
+  /** Polled once, in the composition root: the stack panel reads the same answer. */
+  stats: ReturnType<typeof useStats>
+}) {
   const [tab, setTab] = useState<TabId>('query')
-  const [bucket, setBucket] = useState<Bucket>('daily')
-  const { query, realtime, stale } = useStats(bucket, refreshKey)
+  const { query, realtime, stale } = stats
 
   const shown = tab === 'query' ? query : realtime
   const drift = query && realtime ? query.total - realtime.total : 0
@@ -130,40 +162,81 @@ export default function StatsPanel({ refreshKey }: { refreshKey: number }) {
           ))}
         </div>
 
-        <div className="row">
-          {BUCKETS.map((b) => (
-            <button
-              key={b}
-              onClick={() => setBucket(b)}
-              className={bucket === b ? 'primary' : undefined}
-              disabled={tab === 'realtime' && b !== bucket}
-              style={{ padding: '6px 14px', fontSize: '.85rem' }}
+        {/* Only the query tab offers them. Disabled-but-visible read as broken controls;
+            the cache is keyed per bucket, so switching there is a different question than
+            the one this tab is asking. */}
+        <AnimatePresence mode="popLayout">
+          {tab === 'query' && (
+            <motion.div
+              key="buckets"
+              className="row"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.18 }}
             >
-              {b}
-            </button>
-          ))}
-        </div>
+              {BUCKETS.map((b) => (
+                <button
+                  key={b}
+                  onClick={() => onBucket(b)}
+                  className={bucket === b ? 'primary' : undefined}
+                  style={{ padding: '6px 14px', fontSize: '.85rem' }}
+                >
+                  {b}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="row" style={{ marginBottom: 14 }}>
         <span className="pill">
-          {shown?.total ?? '—'} events
+          {(shown?.total ?? 0).toLocaleString('en-US')} events · {bucket}
         </span>
-        {tab === 'realtime' && (
-          <>
-            <span className="pill">{realtime?.cached ? 'served from cache' : 'recomputed'}</span>
-            <span className="pill">ttl {realtime?.ttl_seconds ?? '—'}s</span>
+        <AnimatePresence mode="popLayout">
+          {tab === 'realtime' && (
             <motion.span
+              key="cache"
               className="pill"
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.18 }}
+            >
+              {realtime?.cached ? 'served from cache' : 'recomputed'}
+            </motion.span>
+          )}
+          {tab === 'realtime' && (
+            <motion.span
+              key="ttl"
+              className="pill"
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.18, delay: 0.03 }}
+            >
+              ttl {realtime?.ttl_seconds ?? '—'}s
+            </motion.span>
+          )}
+          {tab === 'realtime' && (
+            <motion.span
+              key="drift"
+              className="pill"
+              initial={{ opacity: 0, scale: 0.94 }}
               animate={{
+                opacity: 1,
+                scale: 1,
                 borderColor: drift ? 'var(--inflight)' : 'var(--line)',
                 color: drift ? 'var(--inflight)' : 'var(--ink-2)',
               }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.18, delay: 0.06 }}
             >
               drift {drift} behind /events/stats
             </motion.span>
-          </>
-        )}
+          )}
+        </AnimatePresence>
         {stale && (
           <span className="pill" style={{ borderColor: 'var(--inflight)', color: 'var(--inflight)' }}>
             last poll failed
@@ -171,9 +244,17 @@ export default function StatsPanel({ refreshKey }: { refreshKey: number }) {
         )}
       </div>
 
-      <Chart stats={shown} />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2 }}
+        >
+          <Chart stats={shown} />
 
-      <p className="note">
+          <p className="note">
         {tab === 'query' ? (
           <>
             A MongoDB aggregation, computed on every request. <code>$dateTrunc</code> does
@@ -188,7 +269,9 @@ export default function StatsPanel({ refreshKey }: { refreshKey: number }) {
             expires: bounded staleness, on purpose.
           </>
         )}
-      </p>
+          </p>
+        </motion.div>
+      </AnimatePresence>
     </div>
   )
 }

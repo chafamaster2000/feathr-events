@@ -2,7 +2,9 @@ import { useHealthPoll } from '../application/useHealthPoll'
 import { useIngest } from '../application/useIngest'
 import { useSearch } from '../application/useSearch'
 import { useRunLog } from '../application/useRunLog'
+import { useStats } from '../application/useStats'
 import { useTrace } from '../application/useTrace'
+import type { Bucket } from '../infrastructure/api'
 import SearchBar from '../components/SearchBar'
 import SearchResults from '../components/SearchResults'
 import StatsPanel from '../components/StatsPanel'
@@ -23,6 +25,11 @@ export default function Dashboard() {
   // is decided by what the reader last asked for.
   const [mode, setMode] = useState<'trace' | 'burst'>('trace')
   const results = useRef<HTMLDivElement>(null)
+  // Hourly by default: daily collapses a demo's whole history into one bar, and one bar
+  // is not a time series. Polled here so the stack panel and the stats panel read the
+  // same answer instead of asking Redis the same question twice.
+  const [bucket, setBucket] = useState<Bucket>('hourly')
+  const stats = useStats(bucket, refreshKey)
   const { health, history, error } = useHealthPoll(1000)
   const search = useSearch()
   // One log, two producers. Sending a single event is a measurement like any other, and
@@ -120,8 +127,13 @@ export default function Dashboard() {
             void ingest.reset()
           }}
         />
-        <StatusBar health={health} history={history} />
-        <StatsPanel refreshKey={refreshKey} />
+        <StatusBar
+          health={health}
+          history={history}
+          cache={stats.realtime}
+          cacheAgeMs={stats.cacheAgeMs}
+        />
+        <StatsPanel bucket={bucket} onBucket={setBucket} stats={stats} />
         {search.hasSearched && (
           <SearchResults
             ref={results}

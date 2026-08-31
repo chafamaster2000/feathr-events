@@ -244,6 +244,8 @@ tr:last-child td { border-bottom: none; }
   color: var(--navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combo button em { font-style: normal; font-size: .76rem; color: var(--muted);
   font-variant-numeric: tabular-nums; flex: none; }
+.axis-note { margin: 8px 0 0; font-size: .78rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
 .combo-empty { margin: 2px 11px 8px; font-size: .88rem; color: var(--muted); }
 /* The typo, kept but demoted: the reader should see the word they searched for, and be
    able to check what they actually typed without it being the headline. */
