@@ -121,16 +121,23 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
 
       setSteps((prev) => [
         ...prev,
-        ...(peak > 0
-          ? [
-              {
-                label: 'Peak backlog',
-                detail: `${peak} waiting at the deepest point`,
-                atMs: peakAt,
-                state: 'done' as const,
-              },
-            ]
-          : []),
+        // Always reported, including zero. Emitting it only when something was seen
+        // waiting made a small burst look like a different pipeline from a large one,
+        // when the difference was only that ten events drained before the first poll.
+        // Zero is the answer, not the absence of one: it says the worker kept pace.
+        //
+        // Sampled, and worded so: this is the deepest depth *observed* every 80ms, not a
+        // true maximum. A spike that opened and closed between two polls leaves no trace
+        // here, which is why the queue-depth chart samples independently.
+        {
+          label: 'Peak backlog',
+          detail:
+            peak > 0
+              ? `${peak} waiting at the deepest point sampled`
+              : 'never seen backed up — the worker kept pace with the sender',
+          atMs: peakAt,
+          state: 'done' as const,
+        },
         drainMs !== null
           ? {
               label: 'In MongoDB',
