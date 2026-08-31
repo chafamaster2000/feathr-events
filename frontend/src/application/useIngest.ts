@@ -13,6 +13,8 @@ import type { Run } from './useRunLog'
 const CONCURRENCY = 25
 const DRAIN_POLL_MS = 80
 const DRAIN_TIMEOUT_MS = 60_000
+const SEARCHABLE_POLL_MS = 120
+const SEARCHABLE_TIMEOUT_MS = 20_000
 
 const TYPES = ['pageview', 'click', 'conversion', 'add_to_cart', 'signup']
 const BROWSERS = ['firefox', 'chrome', 'safari', 'webkit-nightly']
@@ -20,7 +22,7 @@ const DEVICES = ['mobile', 'desktop', 'tablet']
 
 const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]
 
-function randomEvent(i: number): NewEvent {
+function randomEvent(i: number, marker: string): NewEvent {
   const type = pick(TYPES)
   return {
     event_type: type,
@@ -30,6 +32,10 @@ function randomEvent(i: number): NewEvent {
       browser: pick(BROWSERS),
       device: pick(DEVICES),
       burst: i,
+      // A token unique to this burst. Without it there is no way to ask Elasticsearch
+      // "are *these* five hundred searchable yet" — only how many documents exist in
+      // total, which a previous burst already inflated.
+      run: marker,
       // Keys that exist only for some event types — the shape that makes a dynamic
       // Elasticsearch mapping explode, and the reason metadata is mapped `flattened`.
       ...(type === 'conversion' ? { amount: Math.round(Math.random() * 400), currency: 'usd' } : {}),
@@ -49,6 +55,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
     async (n: number) => {
       setBusy(`sending ${n}`)
       setSteps([])
+      const marker = `run-${Math.random().toString(36).slice(2, 10)}`
       const started = performance.now()
 
       // Counted by what actually happened. Reporting every failure as a 429 would send
@@ -63,7 +70,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
         while (next < n) {
           const i = next++
           try {
-            await api.ingest(randomEvent(i))
+            await api.ingest(randomEvent(i, marker))
             accepted += 1
           } catch (err) {
             if (axios.isAxiosError(err) && err.response?.status === 429) refused += 1
@@ -126,13 +133,13 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           : []),
         drainMs !== null
           ? {
-              label: 'All written',
-              detail: `the queue is empty — every event is in both stores · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
+              label: 'In MongoDB',
+              detail: `the queue is empty — all ${accepted} written · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
               atMs: drainMs,
               state: 'done' as const,
             }
           : {
-              label: 'Still writing',
+              label: 'In MongoDB',
               detail: 'gave up waiting — the queue still had events in it when the timer ran out',
               atMs: DRAIN_TIMEOUT_MS,
               state: 'failed' as const,
@@ -140,6 +147,44 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
       ])
 
       onRun?.({ n, acceptMs, drainMs, accepted, refused, failed })
+
+      // The third hop, which a burst used to skip. It is the same question the single
+      // trace asks and the same answer — Elasticsearch refreshes once a second, so being
+      // written and being findable are different moments — and leaving it out of the
+      // batch made the two readouts tell different stories about one pipeline.
+      if (drainMs !== null && accepted > 0) {
+        setBusy(`indexing ${accepted}`)
+        let searchableMs: number | null = null
+        const searchDeadline = performance.now() + SEARCHABLE_TIMEOUT_MS
+        while (performance.now() < searchDeadline) {
+          try {
+            const found = await api.search(marker, 1)
+            if (found.total >= accepted) {
+              searchableMs = Math.round(performance.now() - started)
+              break
+            }
+          } catch {
+            break
+          }
+          await new Promise((r) => setTimeout(r, SEARCHABLE_POLL_MS))
+        }
+        setSteps((prev) => [
+          ...prev,
+          searchableMs !== null
+            ? {
+                label: 'Searchable',
+                detail: `all ${accepted} findable in Elasticsearch — indexed earlier, visible now, because refresh_interval is 1s`,
+                atMs: searchableMs,
+                state: 'done' as const,
+              }
+            : {
+                label: 'Searchable',
+                detail: 'gave up waiting — not all of them were findable within the timeout',
+                atMs: SEARCHABLE_TIMEOUT_MS,
+                state: 'failed' as const,
+              },
+        ])
+      }
       setLast(
         [
           `${accepted} accepted`,
