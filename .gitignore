@@ -17,7 +17,7 @@ htmlcov/
 # Local /wayfinder tracker
 .scratch/
 
-# Per-machine Claude Code state. The skills and agents ARE committed - see below.
+# Per-machine Claude Code state.
 .claude/settings.local.json
 
 # `.mcp.json` stays out, and this one is not a judgement call: it hardcodes absolute
@@ -25,14 +25,3 @@ htmlcov/
 # `framework` binary this repository no longer depends on. It would not work anywhere
 # else, so committing it would be committing something broken.
 .mcp.json
-
-# `.claude/skills/` and `.claude/agents/` used to be ignored here, with the reason
-# "third-party content, not this project's work". That was wrong twice over. Half of
-# them are this workflow's own - the NDJSON logging contract, the LOGS-READ gate, the
-# Context7 rule, the visual-evidence contract - and README's "AI in My Workflow" and
-# ARCHITECTURE §7b both describe them as the gates the work passed through. A document
-# that describes a workflow whose artifacts are absent from the repository is asking to
-# be taken on trust, which is the one thing this submission tries never to do.
-#
-# They carry no absolute paths and no secrets; ~390K of markdown. `.dockerignore` keeps
-# them out of the image, which is where "development tooling never ships" is enforced.
