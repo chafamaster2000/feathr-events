@@ -78,8 +78,17 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
         >
           {Array.from({ length: slots }, (_, i) => {
             let acc = 0
+            // Keyed by the moment the bin covers, never by its position. The window slides
+            // every couple of seconds, so index 50 stops meaning what it meant: React
+            // reused the element, framer saw a changed value, and every bar in the chart
+            // re-animated on every poll. Identity has to be the bin, not the slot it
+            // currently occupies.
+            //
+            // With that fixed there is nothing left to animate after mount either — a
+            // closed bin's count is final. A bar grows in once and then only moves left.
+            const at = start + i * bin_seconds * 1000
             return (
-              <g key={i}>
+              <g key={at}>
                 {series.map((s, si) => {
                   const v = s.counts[i] ?? 0
                   if (!v) return null
@@ -92,10 +101,10 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
                       width={bw}
                       initial={{ height: 0, y: H }}
                       animate={{ height: h, y: H - acc }}
-                      transition={{ duration: 0.2 }}
+                      transition={{ duration: 0.25 }}
                       fill={colorFor(si)}
                     >
-                      <title>{`${clock(start + i * bin_seconds * 1000)} · ${s.event_type}: ${v}`}</title>
+                      <title>{`${clock(at)} · ${s.event_type}: ${v}`}</title>
                     </motion.rect>
                   )
                 })}
