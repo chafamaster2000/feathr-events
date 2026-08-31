@@ -50,7 +50,15 @@ export default function DepthChart({
       <dl className="metrics" style={{ marginBottom: 18 }}>
         <div className="metric visible">
           <dt>waiting</dt>
-          <dd>{queue?.visible ?? '—'}</dd>
+          <dd>
+            {queue?.visible ?? '—'}
+            {/* The ceiling, next to the number. Backpressure was otherwise a claim in a
+                document: the console could show a queue filling and never show what it
+                was filling toward, so the 429 could only be discovered by hitting it. */}
+            {queue && (
+              <span className="of"> / {queue.capacity.toLocaleString('en-US')}</span>
+            )}
+          </dd>
         </div>
         <div className="metric inflight">
           <dt>in flight</dt>

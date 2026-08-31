@@ -16,6 +16,7 @@ import pytest
 from app import queue as queue_module
 from app.models import Event, EventIn
 from app.queue import InMemoryEventQueue, QueueFull, ReceiptHandleIsInvalid
+from tests.conftest import depth
 
 
 class FakeClock:
@@ -74,7 +75,7 @@ async def test_delete_is_the_ack_and_removes_it_permanently(
     # Even once the visibility timeout lapses it does not return: the delete is final.
     clock.advance(120)
     assert await queue.receive() == []
-    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 0}
+    assert depth(queue) == {"visible": 0, "in_flight": 0, "dlq": 0}
 
 
 # --------------------------------------------------------------------------
@@ -160,7 +161,7 @@ async def test_exhausting_the_attempts_routes_it_to_the_dead_letter_queue(
         clock.advance(10_000)  # lapse any backoff
 
     assert await queue.receive() == []
-    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 1}
+    assert depth(queue) == {"visible": 0, "in_flight": 0, "dlq": 1}
     assert queue.dead_letters()[0].event_id == event.event_id
 
 
@@ -236,4 +237,4 @@ async def test_receive_respects_max_n(queue: InMemoryEventQueue) -> None:
     assert len(messages) == 3
     # Distinct handles: every delivery is an independent loan.
     assert len({m.receipt_handle for m in messages}) == 3
-    assert queue.stats() == {"visible": 2, "in_flight": 3, "dlq": 0}
+    assert depth(queue) == {"visible": 2, "in_flight": 3, "dlq": 0}

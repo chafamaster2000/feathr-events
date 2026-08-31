@@ -6,6 +6,10 @@ export interface QueueStats {
   visible: number
   in_flight: number
   dlq: number
+  /** The bound the queue refuses past, answering 429. Reported beside the depth because
+   *  a depth without a ceiling is a number nobody can act on: 400 waiting means nothing
+   *  until you know whether the limit is 500 or 50,000. */
+  capacity: number
 }
 
 export interface WorkerStats {

@@ -15,6 +15,7 @@ import pytest
 from app.models import Event, EventIn
 from app.queue import InMemoryEventQueue
 from app.worker import EventWorker
+from tests.conftest import depth
 
 
 class FakeClock:
@@ -108,7 +109,7 @@ async def test_happy_path_writes_to_both_and_deletes_the_message(queue) -> None:
     assert store.saved[event.event_id].event_id == event.event_id
     assert index.indexed[event.event_id].event_id == event.event_id
     # Genuinely deleted: neither visible nor in flight.
-    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 0}
+    assert depth(queue) == {"visible": 0, "in_flight": 0, "dlq": 0}
 
 
 async def test_when_mongodb_fails_the_message_is_not_deleted(queue) -> None:
@@ -189,7 +190,7 @@ async def test_several_consumers_share_the_work_without_colliding(queue) -> None
 
     assert set(store.saved) == ids
     assert store.writes == 50  # exactly one write per event: nobody stepped on anybody
-    assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 0}
+    assert depth(queue) == {"visible": 0, "in_flight": 0, "dlq": 0}
 
 
 async def test_stop_drains_what_was_in_flight(queue) -> None:

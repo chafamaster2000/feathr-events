@@ -72,7 +72,13 @@ async def test_cycle_ingest_worker_query(client: httpx.AsyncClient) -> None:
 
     # The queue is empty and nothing was dead-lettered: the message was acknowledged.
     health = (await client.get("/health")).json()
-    assert health["queue"] == {"visible": 0, "in_flight": 0, "dlq": 0}
+    assert {k: health["queue"][k] for k in ("visible", "in_flight", "dlq")} == {
+        "visible": 0,
+        "in_flight": 0,
+        "dlq": 0,
+    }
+    # The bound travels with the depth, because one is meaningless without the other.
+    assert health["queue"]["capacity"] == settings.queue_maxsize
     assert health["worker"]["failed_attempts"] == 0
 
 

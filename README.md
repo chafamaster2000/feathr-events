@@ -217,7 +217,7 @@ worker outpaces ingestion; growing means the worker is the bottleneck.
 ```jsonc
 {"status": "ok",
  "dependencies": {"mongodb": "up", "redis": "up", "elasticsearch": "up"},
- "queue": {"visible": 0, "in_flight": 0, "dlq": 0},
+ "queue": {"visible": 0, "in_flight": 0, "dlq": 0, "capacity": 10000},
  "worker": {"processed": 201, "failed_attempts": 0, "consumers": 8}}
 ```
 

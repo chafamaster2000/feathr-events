@@ -207,6 +207,12 @@ class InMemoryEventQueue:
             "visible": len(self._visible),
             "in_flight": len(self._inflight),
             "dlq": len(self._dlq),
+            # The bound, next to the depth. A depth without a ceiling is a number nobody
+            # can act on: 400 waiting means nothing until you know whether the limit is
+            # 500 or 50,000. It is also the only way backpressure is visible before it
+            # fires - a reader can watch the queue approach the point where the API starts
+            # answering 429 instead of discovering it there.
+            "capacity": self._maxsize,
         }
 
     def clear(self) -> None:

@@ -63,6 +63,17 @@ async def eventually(
     raise AssertionError(f"{what} did not happen within {timeout}s")
 
 
+def depth(queue) -> dict[str, int]:
+    """The three counters, without the queue's configured bound.
+
+    `stats()` also reports `capacity`, which is a setting rather than a measurement.
+    Asserting the whole dict tied five tests to a constant none of them was about, and
+    all five broke the day the bound became observable.
+    """
+    counters = queue.stats()
+    return {k: counters[k] for k in ("visible", "in_flight", "dlq")}
+
+
 @pytest.fixture(scope="session")
 def stack_required() -> None:
     """Skip integration tests when the stack is not running, instead of failing.

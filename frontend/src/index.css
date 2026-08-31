@@ -294,6 +294,10 @@ tr:last-child td { border-bottom: none; }
 .chaos-foot { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line);
   font-size: .8rem; line-height: 1.55; color: var(--muted); }
 
+/* The bound reads as context for the number, not as a second number. */
+.metric dd .of { font-size: .5em; font-weight: 500; color: var(--muted);
+  letter-spacing: 0; }
+
 .axis-note { margin: 8px 0 0; font-size: .78rem; color: var(--muted);
   font-variant-numeric: tabular-nums; }
 .combo-empty { margin: 2px 11px 8px; font-size: .88rem; color: var(--muted); }
