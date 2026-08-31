@@ -1,0 +1,52 @@
+{
+  "_comment": "Canonical evidence report (visual-evidence contract). Written to .logs/evidence/<YYYY-MM-DD>/<taskId>.json; PNGs live in the sibling <taskId>/ dir, referenced by relative name. Superset of the former gamedev probe-report: Unity entries keep before/after pairs; web/mobile checkpoints set shotBefore/descriptionBefore to null. 'description' is written by the eyes agent from the pixels and is required on every capture. Date is LOCAL (date +%F). Re-runs append -2, -3 to the taskId.",
+  "taskId": "plan-007-T2",
+  "platform": "unity",
+  "captureMode": "test-embedded",
+  "scene": "SCENE-Main",
+  "timestampUtc": "2026-07-21T12:00:00Z",
+  "captures": [
+    {
+      "id": "AC-OXY-02",
+      "text": "While submerged, oxygen drains and the HUD bar reflects the current value each tick.",
+      "action": "InputTestFixture: hold Submerge for 3s; PlayMode smoke OxygenDrainSmokeTests.Submerged_DrainsAndHudReflects",
+      "shotBefore": "plan-007-T2/AC-OXY-02.before.png",
+      "shotAfter": "plan-007-T2/AC-OXY-02.after.png",
+      "descriptionBefore": "Player idle at the surface; HUD oxygen bar full (100%), blue segment spans the whole gauge; no warning tint.",
+      "description": "Player submerged near seafloor; HUD oxygen bar visibly reduced to ~80%, right edge of the blue segment retracted; numeric readout shows 82.",
+      "logWindow": [
+        "oxygen.tick drain applied rate=1.5 current=82.0",
+        "hud.oxygen ValueChanged current=82.0 max=100.0"
+      ],
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "verdict": "pass",
+      "score": 9,
+      "note": "shotAfter HUD bar at ~82% matches the NDJSON current=82.0; ValueChanged fired once."
+    },
+    {
+      "id": "step-01-loaded",
+      "text": "Checkout form renders the new discount field after load.",
+      "action": "browser_navigate /checkout; eyes checkpoint after render",
+      "shotBefore": null,
+      "shotAfter": "web-checkout-T4/step-01-loaded.png",
+      "descriptionBefore": null,
+      "description": "Checkout form with four labeled inputs; new 'Discount code' field visible between email and card number; submit button enabled; no layout overflow at 1280px.",
+      "logWindow": [],
+      "consoleErrors": 0,
+      "consoleWarnings": 0,
+      "verdict": null,
+      "score": null,
+      "note": ""
+    }
+  ],
+  "spatialSheet": null,
+  "consoleDump": "plan-007-T2/console.txt",
+  "prEvidence": {
+    "branch": "agent-evidence",
+    "commitSha": "abc123def456",
+    "urls": {
+      "AC-OXY-02.after.png": "https://raw.githubusercontent.com/Odaclick/example-game/abc123def456/plan-007-T2/AC-OXY-02.after.png"
+    }
+  }
+}

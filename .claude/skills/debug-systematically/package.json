@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-debug-systematically",
+  "version": "0.1.0",
+  "description": "Use on ANY bug, unexpected behavior, failing test, or stack trace, BEFORE proposing a fix. Forces hypothesis-driven debugging: minimal reproduction, read hidden logs, bisect, fix, write regression test. Prevents \"first guess\" patches that mask root cause.",
+  "private": true
+}
