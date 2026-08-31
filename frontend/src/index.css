@@ -248,3 +248,14 @@ tr:last-child td { border-bottom: none; }
   .hero-actions { align-items: stretch; width: 100%; }
   .readout { text-align: left; }
 }
+
+/* ---- what each burst size costs ---- */
+.runs { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); max-width: 560px; }
+.runs table { font-size: .92rem; }
+.runs th { font-size: .68rem; }
+.runs td { padding: 7px 10px; }
+.runs td.num { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--navy); }
+.runs td.sub { font-weight: 400; color: var(--muted); }
+.runs tfoot td { border-top: 2px solid var(--line); border-bottom: none; padding-top: 10px;
+  font-weight: 700; }
+.runs tfoot td:first-child { color: var(--muted); font-weight: 600; }

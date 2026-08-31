@@ -58,11 +58,12 @@ export default function Dashboard() {
         <TraceHero
           health={health}
           history={history}
-          steps={trace.steps}
-          running={trace.running}
+          steps={ingest.steps.length > 0 && trace.steps.length === 0 ? ingest.steps : trace.steps}
+          running={trace.running || ingest.busy !== null}
           eventId={trace.eventId}
           busy={ingest.busy}
           last={ingest.last}
+          runs={ingest.runs}
           onIngest={(n) => (n === 1 ? void trace.run() : void ingest.burst(n))}
           onReset={() => void ingest.reset()}
         />

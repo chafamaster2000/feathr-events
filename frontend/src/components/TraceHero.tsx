@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import type { DepthSample, Health, TraceStep } from '../domain/types'
 import IngestButton from './IngestButton'
 import PipelineDiagram from './PipelineDiagram'
+import RunTable from './RunTable'
+import type { Run } from '../application/useIngest'
 
 /**
  * The primary surface: put an event in, and watch where it goes.
@@ -23,6 +25,7 @@ interface Props {
   eventId: string | null
   busy: string | null
   last: string | null
+  runs: Record<number, Run>
   onIngest: (n: number) => void
   onReset: () => void
 }
@@ -35,6 +38,7 @@ export default function TraceHero({
   eventId,
   busy,
   last,
+  runs,
   onIngest,
   onReset,
 }: Props) {
@@ -76,6 +80,8 @@ export default function TraceHero({
           </AnimatePresence>
         </div>
       </div>
+
+      <RunTable runs={runs} />
 
       <PipelineDiagram
         health={health}
