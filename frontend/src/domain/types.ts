@@ -67,3 +67,14 @@ export interface DepthSample {
   inFlight: number
   processed: number
 }
+
+/** One paired reading of the two stats endpoints, for the cache chart. */
+export interface CacheSample {
+  at: number
+  /** `/events/stats` — recomputed on every call. */
+  truth: number
+  /** `/events/stats/realtime` — whatever Redis is holding. */
+  cache: number
+  /** False means this poll paid for the aggregation and refilled the cache. */
+  cached: boolean
+}

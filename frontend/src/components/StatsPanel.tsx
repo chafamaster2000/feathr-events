@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import type { useStats } from '../application/useStats'
+import CacheChart from './CacheChart'
 import type { Bucket } from '../infrastructure/api'
 import type { Stats } from '../domain/types'
 
@@ -9,9 +10,13 @@ import type { Stats } from '../domain/types'
 // mean "good" in a category legend, it means "conversion".
 const SERIES = ['#19263c', '#0d9bb4', '#7b5cd6', '#c47f0a', '#0b7a52', '#c02434']
 
+// Named for what each one is, not for the route that serves it. The endpoint is called
+// `/events/stats/realtime` and is the only *stale* read in the system — "realtime" in the
+// dashboard sense of continuously polled, never in the sense of current. Repeating that
+// word on the tab handed the reader the wrong idea before they saw a single number.
 const TABS = [
-  { id: 'query', label: 'Query · MongoDB' },
-  { id: 'realtime', label: 'Realtime · Redis' },
+  { id: 'query', label: 'Computed · MongoDB' },
+  { id: 'realtime', label: 'Cached · Redis' },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -20,7 +25,7 @@ const BUCKETS: Bucket[] = ['hourly', 'daily', 'weekly']
 // A bar is a quantity, not a fill for the space available. Unbounded, one bucket became
 // a 720px slab across the whole card and three became three — which is what "the chart
 // does not look right" was: every reading, in both tabs, rendered as a wall.
-const MAX_BAR = 56
+const MAX_BAR = 96
 
 /** Short enough to sit under its own bar. The full ISO string never was. */
 function tick(iso: string, bucket?: string) {
@@ -50,7 +55,7 @@ function Chart({ stats }: { stats: Stats | null }) {
 
   const W = 720
   const H = 190
-  const gap = 3
+  const gap = 4
   const bw = Math.min(MAX_BAR, Math.max(2, (W - gap * (columns.length - 1)) / columns.length))
   // Few enough to name each one. The two end labels were the whole axis, and with a
   // single bucket they printed the same timestamp twice.
@@ -71,6 +76,10 @@ function Chart({ stats }: { stats: Stats | null }) {
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
           height={H}
+          // Left, not centred. The default `xMidYMid` centres a 720-wide drawing inside
+          // the 1104-wide card, so a handful of buckets floated in the middle with 192px
+          // of dead space on either side and no axis beneath them.
+          preserveAspectRatio="xMinYMid meet"
           role="img"
           aria-label={`Event counts per ${stats?.bucket} bucket, stacked by event type.`}
         >
@@ -81,7 +90,7 @@ function Chart({ stats }: { stats: Stats | null }) {
                 {types.map((t, ti) => {
                   const v = row[t] ?? 0
                   if (!v) return null
-                  const h = (v / peak) * (H - 26)
+                  const h = (v / peak) * (H - 40)
                   acc += h
                   return (
                     <motion.rect
@@ -101,6 +110,30 @@ function Chart({ stats }: { stats: Stats | null }) {
               </g>
             )
           })}
+          {/* The number itself, while the bars are wide enough to carry it. Neighbours
+              five-fold apart are unreadable by height alone, and that spread is the normal
+              shape of this data rather than an accident to design around. */}
+          {perColumn &&
+            columns.map(([b, row], ci) => {
+              const sum = Object.values(row).reduce((acc, n) => acc + n, 0)
+              return (
+                <motion.text
+                  key={`v-${b}`}
+                  x={ci * (bw + gap) + bw / 2}
+                  y={H - 26 - (sum / peak) * (H - 40)}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fontWeight={600}
+                  fill="var(--navy)"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.25, delay: 0.15 }}
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {sum.toLocaleString('en-US')}
+                </motion.text>
+              )
+            })}
           <line x1={0} x2={W} y1={H - 20} y2={H - 20} stroke="var(--line)" strokeWidth={1.5} />
           {perColumn
             ? columns.map(([b], ci) => (
@@ -141,10 +174,9 @@ export default function StatsPanel({
   stats: ReturnType<typeof useStats>
 }) {
   const [tab, setTab] = useState<TabId>('query')
-  const { query, realtime, stale } = stats
+  const { query, realtime, stale, history, latency, cacheAgeMs } = stats
 
   const shown = tab === 'query' ? query : realtime
-  const drift = query && realtime ? query.total - realtime.total : 0
 
   return (
     <div className="card span-12">
@@ -194,49 +226,6 @@ export default function StatsPanel({
         <span className="pill">
           {(shown?.total ?? 0).toLocaleString('en-US')} events · {bucket}
         </span>
-        <AnimatePresence mode="popLayout">
-          {tab === 'realtime' && (
-            <motion.span
-              key="cache"
-              className="pill"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.18 }}
-            >
-              {realtime?.cached ? 'served from cache' : 'recomputed'}
-            </motion.span>
-          )}
-          {tab === 'realtime' && (
-            <motion.span
-              key="ttl"
-              className="pill"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.18, delay: 0.03 }}
-            >
-              ttl {realtime?.ttl_seconds ?? '—'}s
-            </motion.span>
-          )}
-          {tab === 'realtime' && (
-            <motion.span
-              key="drift"
-              className="pill"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                borderColor: drift ? 'var(--inflight)' : 'var(--line)',
-                color: drift ? 'var(--inflight)' : 'var(--ink-2)',
-              }}
-              exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.18, delay: 0.06 }}
-            >
-              drift {drift} behind /events/stats
-            </motion.span>
-          )}
-        </AnimatePresence>
         {stale && (
           <span className="pill" style={{ borderColor: 'var(--inflight)', color: 'var(--inflight)' }}>
             last poll failed
@@ -244,34 +233,38 @@ export default function StatsPanel({
         )}
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={tab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
-        >
-          <Chart stats={shown} />
-
+      {/* Cross-faded by CSS, not by AnimatePresence. Framer's exit never resolved here:
+          this subtree re-renders every two seconds from the stats poll, and the enter
+          animation kept being reset to its initial value while the outgoing one waited to
+          finish. Measured mid-swap, both views sat mounted at opacity 0 and the panel
+          showed nothing at all. A CSS transition declares the destination instead of
+          animating toward it, so a re-render cannot interrupt what it does not drive. */}
+      <div className="swap">
+        <div className="swap-view" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
+          <Chart stats={query} />
           <p className="note">
-        {tab === 'query' ? (
-          <>
             A MongoDB aggregation, computed on every request. <code>$dateTrunc</code> does
             the bucketing inside the database — pulling the documents out to count them in
             the application would move data across the network only to discard it.
-          </>
-        ) : (
-          <>
-            The same aggregation, served from Redis with a TTL. It is the only cached read,
-            because it is the only one whose contract already promises a summary rather than
-            an exact figure. Send a burst and watch the drift open, then close when the TTL
-            expires: bounded staleness, on purpose.
-          </>
-        )}
           </p>
-        </motion.div>
-      </AnimatePresence>
+        </div>
+
+        <div className="swap-view" data-on={tab === 'realtime'} aria-hidden={tab !== 'realtime'}>
+          <CacheChart
+            samples={history}
+            latency={latency}
+            ageMs={cacheAgeMs}
+            ttl={realtime?.ttl_seconds}
+          />
+          <p className="note">
+            The same aggregation, served from Redis with a TTL — the only cached read,
+            because it is the only one whose contract promises a summary rather than an
+            exact figure. Send a burst and watch the gap open while the cached line holds
+            flat, then close in one step when the TTL lapses. That sawtooth is the trade:
+            bounded staleness, on purpose.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
