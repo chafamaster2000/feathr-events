@@ -26,6 +26,7 @@ See ARCHITECTURE.md §4.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections import deque
@@ -40,9 +41,20 @@ DEFAULT_MAXSIZE = 10_000
 # 15 minutes: beyond this the dead-letter queue is more useful than waiting longer.
 BACKOFF_CAP_SECONDS = 900.0
 
+# The dead-letter is bounded too. It used to be an unbounded list, and dead-lettering
+# frees the entry it came from, so a sustained downstream outage could push every
+# accepted event into a structure that counts against nothing and never stops growing -
+# in a queue whose own docstring argues that an unbounded queue protects nothing. A
+# deque that drops its oldest is the honest failure: bounded memory, and a log line
+# naming what was discarded.
+DLQ_MAXLEN = 1_000
+
 
 class QueueError(Exception):
     """Base class for queue errors."""
+
+
+log = logging.getLogger(__name__)
 
 
 class QueueFull(QueueError):
@@ -129,7 +141,7 @@ class InMemoryEventQueue:
         self._entries: dict[str, _Entry] = {}
         self._visible: deque[str] = deque()
         self._inflight: dict[str, str] = {}  # handle -> message_id
-        self._dlq: list[Event] = []
+        self._dlq: deque[Event] = deque(maxlen=DLQ_MAXLEN)
 
     # ---- the port -----------------------------------------------------------
 
@@ -226,6 +238,23 @@ class InMemoryEventQueue:
             entry.handle = None
 
             if entry.receive_count >= self._max_receives:
+                # Say it out loud. This is the moment the system permanently gives up on
+                # an event, and it used to be the only lifecycle transition that produced
+                # no output: an operator tailing WARN saw five identical retry warnings
+                # and then silence, which looks exactly like recovery.
+                if len(self._dlq) == DLQ_MAXLEN:
+                    log.error(
+                        "dead-letter queue is full at %d; dropping the oldest to admit %s",
+                        DLQ_MAXLEN,
+                        entry.event.event_id,
+                    )
+                log.error(
+                    "dead-lettering %s after %d deliveries (type=%s user=%s)",
+                    entry.event.event_id,
+                    entry.receive_count,
+                    entry.event.event_type,
+                    entry.event.user_id,
+                )
                 self._dlq.append(entry.event)
                 del self._entries[message_id]
             else:

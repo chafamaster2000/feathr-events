@@ -9,8 +9,11 @@ milliseconds and has no races.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
+from app import queue as queue_module
 from app.models import Event, EventIn
 from app.queue import InMemoryEventQueue, QueueFull, ReceiptHandleIsInvalid
 
@@ -159,6 +162,36 @@ async def test_exhausting_the_attempts_routes_it_to_the_dead_letter_queue(
     assert await queue.receive() == []
     assert queue.stats() == {"visible": 0, "in_flight": 0, "dlq": 1}
     assert queue.dead_letters()[0].event_id == event.event_id
+
+
+async def test_the_dead_letter_queue_is_bounded_and_says_so(
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dead-lettering frees the entry it came from, so nothing else stops it.
+
+    A sustained downstream outage pushes every accepted event through this path. While
+    the dead-letter was an unbounded list it counted against no limit and never stopped
+    growing, in a queue whose own design argues that an unbounded queue protects nothing.
+    """
+    # Patched, not assigned: a bare module mutation would leave every later test in the
+    # session running against a dead-letter of two.
+    monkeypatch.setattr(queue_module, "DLQ_MAXLEN", 2)
+    small = InMemoryEventQueue(visibility_timeout=30.0, max_receives=1, clock=clock)
+
+    caplog.set_level(logging.ERROR, logger="app.queue")
+    for _ in range(4):
+        await small.send(make_event())
+        assert await small.receive()
+        clock.advance(10_000)
+    assert await small.receive() == []
+
+    assert small.stats()["dlq"] == 2, "the dead-letter grew past its bound"
+    # The transition an operator has to be able to see. Without it, five retry warnings
+    # followed by silence is indistinguishable from recovery.
+    assert sum("dead-lettering" in r.message for r in caplog.records) == 4
+    assert any("dead-letter queue is full" in r.message for r in caplog.records)
 
 
 # --------------------------------------------------------------------------

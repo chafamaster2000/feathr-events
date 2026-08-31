@@ -15,7 +15,7 @@ called in the HTTP layer, before the queue is touched. See ARCHITECTURE.md §2.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -23,6 +23,12 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+# How far ahead of the server a client clock may be before its timestamp is refused.
+# Generous enough for unsynchronised machines, far short of useful for back-dating the
+# top of a listing.
+FUTURE_SKEW = timedelta(minutes=5)
 
 
 class EventIn(BaseModel):
@@ -41,6 +47,37 @@ class EventIn(BaseModel):
     # Optional: if the client does not know when it happened, the API stamps it.
     timestamp: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("timestamp")
+    @classmethod
+    def _bound_the_future(cls, v: datetime | None) -> datetime | None:
+        """A client may say when an event happened, but not that it happens later.
+
+        Back-dating is legitimate: a buffered or offline client sends late, and the
+        pipeline is built so a late arrival still lands where it belongs. Forward-dating
+        is not. The field is unvalidated no longer because an unbounded future timestamp
+        is not a typo, it is a lever: sorted descending, one event dated 2031 sits at the
+        top of every listing until somebody deletes it by hand, and it opens a bucket
+        five years wide in every aggregation. Observed exactly that way, from a probe.
+
+        The whole concurrency argument also rests on this field. `timestamp` travels
+        inside the event so that write order cannot change the outcome, which means any
+        caller can move where an event lands. Accepting the past is the feature.
+        Accepting the future is a hole.
+
+        Naive input is read as UTC and made explicit; aware input is converted to UTC.
+        Everything downstream is aware, like `_now()` - MongoDB is what strips the offset,
+        on write, and the read path puts it back. `FUTURE_SKEW` is the allowance for a
+        client clock that runs slightly fast, not a window for choosing a date.
+        """
+        if v is None:
+            return None
+        v = v.replace(tzinfo=UTC) if v.tzinfo is None else v.astimezone(UTC)
+        if v > _now() + FUTURE_SKEW:
+            raise ValueError(
+                f"timestamp is more than {int(FUTURE_SKEW.total_seconds())}s in the future"
+            )
+        return v
 
     @field_validator("event_type")
     @classmethod

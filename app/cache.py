@@ -70,13 +70,19 @@ class StatsCache:
         The cache is an optimisation, not a dependency: if it fails, the cost is
         recomputing. Propagating the error would turn a performance degradation into an
         outage.
+
+        The decode belongs inside the guard, not after it. A Redis *value* can be as
+        broken as a Redis *connection* - truncated, written by an older schema, or left
+        at the same key by another process - and `json.loads` outside the `try` turned
+        exactly that into a 500, for the length of a TTL, on the one endpoint whose whole
+        contract is that it may serve a stale answer rather than fail.
         """
         try:
             raw = await self._redis.get(key)
+            return json.loads(raw) if raw else None
         except Exception:
             log.warning("cache read failed; recomputing", exc_info=True)
             return None
-        return json.loads(raw) if raw else None
 
     async def set(self, key: str, value: dict[str, Any]) -> None:
         try:
