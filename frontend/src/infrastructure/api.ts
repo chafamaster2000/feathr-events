@@ -65,6 +65,10 @@ export const api = {
 
   /** Simulate a dependency being unavailable, so the failure modes can be watched.
    *  Absent unless the API runs with DEMO_MODE enabled, like the reset below. */
+  /** Which dependencies are currently simulated as down. Without this, a reload cannot
+   *  tell a left-over simulation from a real outage. */
+  faultState: () => client.get<{ faulted: string[] }>('/demo/fault').then((r) => r.data),
+
   fault: (dependency: string, down: boolean) =>
     client.post<{ faulted: string[] }>('/demo/fault', null, {
       params: { dependency, down },

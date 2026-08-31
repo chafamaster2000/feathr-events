@@ -281,6 +281,18 @@ async def health(request: Request) -> JSONResponse:
 
 if settings.demo_mode:
 
+    @app.get("/demo/fault", tags=["demo"])
+    async def demo_faults_active() -> dict:
+        """Which dependencies are currently being simulated as down.
+
+        The read half of the control, and it closes a real hazard rather than adding a
+        convenience: without it a client that reloads cannot tell a left-over simulation
+        from a genuine outage, and somebody spends an afternoon debugging a ghost. It
+        exposes one list drawn from a closed set of three names, under the same
+        `DEMO_MODE` gate as the write half.
+        """
+        return {"faulted": faults.active()}
+
     @app.post("/demo/fault", tags=["demo"])
     async def demo_fault(dependency: DependencyName, down: bool = True) -> dict:
         """Simulate a dependency being unavailable, so §6's failure modes can be watched.

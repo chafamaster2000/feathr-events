@@ -268,21 +268,31 @@ tr:last-child td { border-bottom: none; }
   color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .timeaxis span:first-child { transform: none; }
 .timeaxis span:last-child { transform: translateX(-100%); }
-/* ---- failure modes, inside the stack card ---- */
-.failures { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
-.failures h3 { margin: 0; font-size: .72rem; font-weight: 700; letter-spacing: .09em;
+/* ---- failure modes: a trigger in the pills row, a panel over the content ---- */
+/* The control collapses, the consequence does not. A panel that permanently occupied a
+   third of the stack card was the wrong trade for something used once and then watched -
+   and a modal would cover the charts the reader broke something in order to see. */
+.chaos { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+/* Never hidden: a forgotten simulation makes every other panel on the page lie. */
+.chaos-active { border-color: var(--dead); color: var(--dead); cursor: pointer; }
+.chaos-active:hover { background: color-mix(in srgb, var(--dead) 8%, transparent); }
+
+.chaos-panel { position: absolute; top: calc(100% + 10px); left: 0; z-index: 50;
+  width: min(560px, 84vw); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 16px 40px rgba(25, 38, 60, .18); padding: 14px 16px; }
+.chaos-head { margin: 0 0 10px; font-size: .72rem; font-weight: 700; letter-spacing: .09em;
   text-transform: uppercase; color: var(--muted); }
-.failure { padding: 12px 0; border-bottom: 1px solid var(--line); }
-.failure:last-of-type { border-bottom: none; }
-.failure-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.failure-claim { margin: 8px 0 0; font-size: .88rem; color: var(--muted); line-height: 1.6;
-  max-width: 78ch; }
-/* Amber, not red: the point of the row is that the system keeps working, so the live line
-   is a state to read rather than an alarm to clear. */
-.failure-watch { margin: 8px 0 0; font-size: .88rem; line-height: 1.6; overflow: hidden;
-  color: var(--inflight); max-width: 78ch; }
-.failure[data-down='true'] { background: color-mix(in srgb, var(--dead) 4%, transparent);
-  border-radius: 10px; padding-left: 12px; padding-right: 12px; }
+.chaos-case { padding: 11px 0; border-top: 1px solid var(--line); }
+.chaos-case-head { display: flex; align-items: center; gap: 10px; }
+.chaos-case-head button { padding: 5px 12px; font-size: .82rem; min-width: 104px; }
+.chaos-case p { margin: 8px 0 0; font-size: .86rem; line-height: 1.55; color: var(--muted); }
+/* Amber rather than red: the row's point is that the system keeps working, so this is a
+   state to read, not an alarm to clear. */
+.chaos-watch { color: var(--inflight) !important; overflow: hidden; }
+.chaos-case[data-down='true'] { background: color-mix(in srgb, var(--dead) 4%, transparent);
+  border-radius: 10px; padding-left: 10px; padding-right: 10px; }
+.chaos-foot { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: .8rem; line-height: 1.55; color: var(--muted); }
 
 .axis-note { margin: 8px 0 0; font-size: .78rem; color: var(--muted);
   font-variant-numeric: tabular-nums; }

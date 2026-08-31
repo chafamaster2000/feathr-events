@@ -1,21 +1,25 @@
 import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
 import { useFaults } from '../application/useFaults'
 import type { Health } from '../domain/types'
 
 /**
- * The failure modes of ARCHITECTURE.md §6, made interactive.
+ * The failure modes of ARCHITECTURE.md §6, made interactive — and kept out of the way.
  *
- * These are the least verifiable claims in the design. Nothing in the system breaks
- * itself, and the interesting part of each claim is what *keeps working* while something
- * is down — which nobody sees by reading. Each row breaks one dependency on request and
- * then shows what actually happened next to what was predicted.
+ * The control collapses; the consequence does not. Breaking a dependency is done once and
+ * then watched, so the three cases and their explanations live behind a trigger rather
+ * than occupying a third of the stack card permanently. What cannot be hidden is that a
+ * simulation is running: a forgotten fault makes every other panel lie, so an active one
+ * is announced in the pills row, which is always on screen.
+ *
+ * Not a modal, deliberately. The point of breaking something is to watch the queue depth
+ * and the live chart react, and a dialog covers exactly what the reader came to see.
  *
  * The API is not being asked to stop a container. It could not: reaching Docker from
- * inside the API means mounting the daemon socket, which is a genuine privilege
- * escalation for a demonstration. It flips a flag, and the adapters raise where a driver
- * error would raise — so the code that handles it is the code that handles the real
- * thing. That is the shape of "the dependency refused", not "the dependency went quiet":
- * no partition, no timeout, no partial failure. Said here rather than left implied.
+ * inside the API means mounting the daemon socket, which is a real privilege escalation
+ * for a demonstration. It flips a flag and the adapters raise where a driver error would,
+ * so the code that handles it is the code that handles the real thing. That is the shape
+ * of "the dependency refused", not "the dependency went quiet".
  */
 const CASES: {
   dep: 'mongodb' | 'elasticsearch' | 'redis'
@@ -25,13 +29,13 @@ const CASES: {
   {
     dep: 'mongodb',
     claim:
-      'Ingestion keeps accepting, because the API never writes. The worker fails its write and never reaches the delete, so the message returns by visibility timeout and retries.',
+      'Ingestion keeps accepting: the API never writes. The worker fails its write and never reaches the delete, so the message returns by visibility timeout and retries.',
     watch: 'the queue depth climbing while the API still answers 202',
   },
   {
     dep: 'elasticsearch',
     claim:
-      'Ingestion and MongoDB are unaffected: Mongo is written first, so the source of truth is never the casualty. Search degrades, and the index rebuilds from Mongo.',
+      'Ingestion and MongoDB are unaffected, because Mongo is written first: the source of truth is never the casualty. Search degrades, and the index rebuilds from Mongo.',
     watch: 'events still reaching MongoDB while search stops finding them',
   },
   {
@@ -50,79 +54,108 @@ export default function FailureModes({
   onChange?: () => void
 }) {
   const { faulted, busy, unavailable, toggle } = useFaults(onChange)
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', away)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [open])
 
   return (
-    <div className="failures">
-      <div className="runs-head">
-        <h3>Failure modes</h3>
-        <span className="legend" style={{ marginRight: 'auto' }}>
-          break one on purpose, and watch what keeps working
-        </span>
-      </div>
+    <div className="chaos" ref={wrap}>
+      {/* Always visible, because a forgotten simulation makes every other panel lie. */}
+      <AnimatePresence>
+        {faulted.length > 0 && (
+          <motion.button
+            className="pill chaos-active"
+            onClick={() => setOpen(true)}
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.94 }}
+            title="A failure is being simulated. Click to restore."
+          >
+            simulating {faulted.join(', ')}
+          </motion.button>
+        )}
+      </AnimatePresence>
 
-      {CASES.map(({ dep, claim, watch }) => {
-        // The button follows what /health reports, not what this tab remembers. Reload
-        // the page with a dependency down and local memory says "up" while the pill says
-        // otherwise — the console's whole discipline is to show the observed state, and
-        // a control that argues with the reading beside it is worse than no control.
-        const reported = health?.dependencies[dep]
-        const down = reported !== undefined && reported !== 'up'
-        // Only claimable when this tab caused it. A dependency that is genuinely down
-        // must not be labelled a simulation.
-        const simulated = faulted.includes(dep)
-        return (
-          <div key={dep} className="failure" data-down={down}>
-            <div className="failure-head">
-              <button
-                className={down ? 'danger' : undefined}
-                disabled={busy === dep || unavailable}
-                onClick={() => void toggle(dep, down)}
-                style={{ padding: '5px 12px', fontSize: '.82rem', minWidth: 116 }}
-              >
-                {busy === dep ? '…' : down ? 'Bring it back' : `Break ${dep}`}
-              </button>
-              <span className={`pill ${reported ?? ''}`}>
-                {dep} {reported ?? '…'}
-              </span>
-              <AnimatePresence>
-                {simulated && (
-                  <motion.span
-                    className="pill"
-                    style={{ borderColor: 'var(--dead)', color: 'var(--dead)' }}
-                    initial={{ opacity: 0, scale: 0.94 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.94 }}
-                  >
-                    simulated
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </div>
+      <button
+        className="link"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        Failure modes
+      </button>
 
-            <p className="failure-claim">{claim}</p>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="chaos-panel"
+            role="dialog"
+            aria-label="break a dependency on purpose"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+          >
+            <p className="chaos-head">break one on purpose, and watch what keeps working</p>
 
-            <AnimatePresence initial={false}>
-              {down && (
-                <motion.p
-                  className="failure-watch"
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                >
-                  Watch for {watch}. The API is still answering, so the process is alive and
-                  the queue with it.
-                </motion.p>
-              )}
-            </AnimatePresence>
-          </div>
-        )
-      })}
+            {CASES.map(({ dep, claim, watch }) => {
+              // Follows /health, not local memory: a control that argues with the reading
+              // beside it is worse than no control.
+              const reported = health?.dependencies[dep]
+              const down = reported !== undefined && reported !== 'up'
+              return (
+                <div key={dep} className="chaos-case" data-down={down}>
+                  <div className="chaos-case-head">
+                    <button
+                      className={down ? 'danger' : undefined}
+                      disabled={busy === dep || unavailable}
+                      onClick={() => void toggle(dep, down)}
+                    >
+                      {busy === dep ? '…' : down ? 'Bring it back' : 'Break it'}
+                    </button>
+                    <span className={`pill ${reported ?? ''}`}>
+                      {dep} {reported ?? '…'}
+                    </span>
+                  </div>
+                  <p>{claim}</p>
+                  <AnimatePresence initial={false}>
+                    {down && (
+                      <motion.p
+                        className="chaos-watch"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                      >
+                        Watch for {watch}. The API is still answering, so the process is
+                        alive and the queue with it.
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )
+            })}
 
-      <p className="note">
-        {unavailable
-          ? 'Unavailable: the API is not running with DEMO_MODE, so this route is not registered.'
-          : 'The flag makes the adapters raise where a driver error would, so the path that handles it is the real one. It is not a partition or a timeout: this is the shape of a dependency refusing, not of one going quiet.'}
-      </p>
+            <p className="chaos-foot">
+              {unavailable
+                ? 'Unavailable: the API is not running with DEMO_MODE, so this route is not registered.'
+                : 'The flag makes the adapters raise where a driver error would, so the path that handles it is the real one. Not a partition and not a timeout: this is a dependency refusing, not one going quiet.'}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

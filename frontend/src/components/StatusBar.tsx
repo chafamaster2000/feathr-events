@@ -35,6 +35,7 @@ export default function StatusBar({
               {name} {deps?.[name] ?? '…'}
             </span>
           ))}
+          <FailureModes health={health} />
           <AnimatePresence mode="popLayout">
             {cache && (
               <motion.span
@@ -79,8 +80,6 @@ export default function StatusBar({
       </p>
 
       <DepthChart history={history} queue={health?.queue as QueueStats | undefined} />
-
-      <FailureModes health={health} />
     </div>
   )
 }

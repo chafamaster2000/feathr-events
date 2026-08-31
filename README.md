@@ -258,6 +258,9 @@ be worth recording rather than quietly editing:
   **only** when the API runs with `DEMO_MODE` enabled — not disabled behind a check,
   absent. A destructive endpoint that merely tests a flag is one configuration mistake
   away from being live.
+- `GET /demo/fault` lists what is currently simulated. It exists to close a hazard, not
+  as a convenience: without it a reloaded page cannot tell a left-over simulation from a
+  real outage, and somebody debugs a ghost.
 - `POST /demo/fault?dependency=…&down=…` simulates a dependency being unavailable, so
   §6's failure modes can be watched instead of read. It flips one flag and the adapters
   raise where a driver error would, so the code that handles it is the code that handles

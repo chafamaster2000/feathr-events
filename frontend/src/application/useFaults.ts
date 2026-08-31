@@ -8,13 +8,23 @@
 // disabled, so a 404 here is the expected answer on a normally-configured server and is
 // reported as such rather than as an error.
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../infrastructure/api'
 
 export function useFaults(onChange?: () => void) {
   const [faulted, setFaulted] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [unavailable, setUnavailable] = useState(false)
+
+  // Asked once on mount. Local memory is not enough: a page reloaded while something is
+  // simulated would show a genuine-looking outage, and the difference between "I broke
+  // this" and "this broke" is the whole value of the badge.
+  useEffect(() => {
+    api
+      .faultState()
+      .then((r) => setFaulted(r.faulted))
+      .catch(() => setUnavailable(true))
+  }, [])
 
   const toggle = useCallback(
     async (dependency: string, currentlyDown: boolean) => {
