@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import type { DepthSample, Health, LiveSummary, QueueStats } from '../domain/types'
 import DepthChart from './DepthChart'
 import FailureModes from './FailureModes'
@@ -36,24 +36,22 @@ export default function StatusBar({
             </span>
           ))}
           <FailureModes health={health} />
-          <AnimatePresence mode="popLayout">
-            {cache && (
-              <motion.span
-                key={hit ? 'hit' : 'miss'}
-                className="pill"
-                initial={{ opacity: 0, scale: 0.94 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.94 }}
-                transition={{ duration: 0.2 }}
-                style={hit ? { borderColor: 'var(--cyan)', color: 'var(--navy)' } : undefined}
-                title="from /events/stats/realtime, the one read that goes through Redis"
-              >
-                {hit
-                  ? `cache hit · ${Math.round((cacheAgeMs ?? 0) / 1000)}s old`
-                  : 'cache miss · recomputed'}
-              </motion.span>
-            )}
-          </AnimatePresence>
+          {/* Same rule as the paused pill beside it, and this one had gone further wrong:
+              the hit and miss copies were BOTH on screen and BOTH at opacity 0, so the row
+              carried two pills and showed neither. The reader lost the one indicator that
+              says whether Redis answered. */}
+          {cache && (
+            <span
+              key={hit ? 'hit' : 'miss'}
+              className="pill enter-soft"
+              style={hit ? { borderColor: 'var(--cyan)', color: 'var(--navy)' } : undefined}
+              title="from /events/stats/realtime, the one read that goes through Redis"
+            >
+              {hit
+                ? `cache hit · ${Math.round((cacheAgeMs ?? 0) / 1000)}s old`
+                : 'cache miss · recomputed'}
+            </span>
+          )}
         </div>
         <div className="pills">
           <span className="pill">
@@ -71,25 +69,26 @@ export default function StatusBar({
           <span className="pill" style={health?.worker.failed_attempts ? { color: 'var(--dead)' } : undefined}>
             failed attempts {health?.worker.failed_attempts ?? '…'}
           </span>
-          {/* Only while it is true. A pill reading "paused no" is noise on every normal
-              render, and the state it describes is the one the reader needs to notice
-              immediately — a queue filling beside a worker that otherwise looks healthy. */}
-          <AnimatePresence>
-            {health?.worker.paused && (
-              <motion.span
-                key="paused"
-                className="pill"
-                style={{ borderColor: 'var(--dead)', color: 'var(--dead)' }}
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.2 }}
-                title="The stores stopped answering, so the worker stopped taking work it cannot do. The backlog waits in the queue instead of spending delivery attempts and dead-lettering."
-              >
-                paused · probing in {Math.ceil(health.worker.resumes_in)}s
-              </motion.span>
-            )}
-          </AnimatePresence>
+          {/* Shown only while it is true. A pill reading "paused no" is noise on every
+              normal render, and the state it describes is the one the reader needs to
+              notice immediately — a queue filling beside a worker that otherwise looks
+              healthy.
+
+              Rendered conditionally, entrance as decoration. Under AnimatePresence this
+              pill stayed on screen at opacity 0.58 eight seconds after the worker had
+              resumed, still reading "probing in 3s" — a stale fault indicator, which is
+              worse than none, because it sends the reader hunting for a problem that
+              ended. See index.css for why the cause is unresolved and why it does not
+              need to be. */}
+          {health?.worker.paused && (
+            <span
+              className="pill enter-soft"
+              style={{ borderColor: 'var(--dead)', color: 'var(--dead)' }}
+              title="The stores stopped answering, so the worker stopped taking work it cannot do. The backlog waits in the queue instead of spending delivery attempts and dead-lettering."
+            >
+              paused · probing in {Math.ceil(health.worker.resumes_in)}s
+            </span>
+          )}
         </div>
       </div>
       <p className="note">

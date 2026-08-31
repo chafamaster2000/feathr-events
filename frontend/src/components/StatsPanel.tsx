@@ -1,61 +1,79 @@
-import { motion } from 'framer-motion'
-import { useMemo, useState } from 'react'
-import type { useStats } from '../application/useStats'
-import { colorFor } from '../domain/palette'
-import LiveChart from './LiveChart'
-import type { Bucket } from '../infrastructure/api'
-import type { Stats } from '../domain/types'
+import { motion } from "framer-motion";
+import { useMemo, useState } from "react";
+import type { useStats } from "../application/useStats";
+import { colorFor } from "../domain/palette";
+import LiveChart from "./LiveChart";
+import type { Bucket } from "../infrastructure/api";
+import type { Stats } from "../domain/types";
 
 // Named for what each one is, not for the route that serves it. The endpoint is called
 // `/events/stats/realtime` and is the only *stale* read in the system — "realtime" in the
 // dashboard sense of continuously polled, never in the sense of current. Repeating that
 // word on the tab handed the reader the wrong idea before they saw a single number.
 const TABS = [
-  { id: 'query', label: 'History · MongoDB' },
-  { id: 'realtime', label: 'Live · Redis' },
-] as const
-type TabId = (typeof TABS)[number]['id']
+  { id: "query", label: "History · MongoDB" },
+  { id: "realtime", label: "Live · Redis" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 
-const BUCKETS: Bucket[] = ['hourly', 'daily', 'weekly']
+const BUCKETS: Bucket[] = ["hourly", "daily", "weekly"];
 
 // A bar is a quantity, not a fill for the space available. Unbounded, one bucket became
 // a 720px slab across the whole card and three became three — which is what "the chart
 // does not look right" was: every reading, in both tabs, rendered as a wall.
-const MAX_BAR = 96
+const MAX_BAR = 96;
 
 /** Short enough to sit under its own bar. The full ISO string never was. */
 function tick(iso: string, bucket?: string) {
-  const [date, time] = iso.replace('T', ' ').split(' ')
-  return bucket === 'hourly' ? (time?.slice(0, 5) ?? iso) : (date?.slice(5) ?? iso)
+  const [date, time] = iso.replace("T", " ").split(" ");
+  return bucket === "hourly"
+    ? (time?.slice(0, 5) ?? iso)
+    : (date?.slice(5) ?? iso);
 }
 
 /** Stacked counts per time bucket, by event type. */
-function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number | null }) {
+function Chart({
+  stats,
+  computedAt,
+}: {
+  stats: Stats | null;
+  computedAt: number | null;
+}) {
   const { columns, types, peak } = useMemo(() => {
-    const byBucket = new Map<string, Record<string, number>>()
-    const seen = new Set<string>()
+    const byBucket = new Map<string, Record<string, number>>();
+    const seen = new Set<string>();
     for (const b of stats?.buckets ?? []) {
-      seen.add(b.event_type)
-      const row = byBucket.get(b.bucket) ?? {}
-      row[b.event_type] = (row[b.event_type] ?? 0) + b.count
-      byBucket.set(b.bucket, row)
+      seen.add(b.event_type);
+      const row = byBucket.get(b.bucket) ?? {};
+      row[b.event_type] = (row[b.event_type] ?? 0) + b.count;
+      byBucket.set(b.bucket, row);
     }
-    const cols = [...byBucket.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-40)
-    const max = Math.max(1, ...cols.map(([, r]) => Object.values(r).reduce((s, n) => s + n, 0)))
-    return { columns: cols, types: [...seen].sort(), peak: max }
-  }, [stats])
+    const cols = [...byBucket.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-40);
+    const max = Math.max(
+      1,
+      ...cols.map(([, r]) => Object.values(r).reduce((s, n) => s + n, 0)),
+    );
+    return { columns: cols, types: [...seen].sort(), peak: max };
+  }, [stats]);
 
   if (columns.length === 0) {
-    return <p className="banner">No events in this window yet. Send a burst.</p>
+    return (
+      <p className="banner">No events in this window yet. Send a burst.</p>
+    );
   }
 
-  const W = 720
-  const H = 190
-  const gap = 4
-  const bw = Math.min(MAX_BAR, Math.max(2, (W - gap * (columns.length - 1)) / columns.length))
+  const W = 720;
+  const H = 190;
+  const gap = 4;
+  const bw = Math.min(
+    MAX_BAR,
+    Math.max(2, (W - gap * (columns.length - 1)) / columns.length),
+  );
   // Few enough to name each one. The two end labels were the whole axis, and with a
   // single bucket they printed the same timestamp twice.
-  const perColumn = columns.length <= 10
+  const perColumn = columns.length <= 10;
 
   return (
     <>
@@ -80,14 +98,14 @@ function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number 
           aria-label={`Event counts per ${stats?.bucket} bucket, stacked by event type.`}
         >
           {columns.map(([bucket, row], ci) => {
-            let acc = 0
+            let acc = 0;
             return (
               <g key={bucket}>
                 {types.map((t, ti) => {
-                  const v = row[t] ?? 0
-                  if (!v) return null
-                  const h = (v / peak) * (H - 40)
-                  acc += h
+                  const v = row[t] ?? 0;
+                  if (!v) return null;
+                  const h = (v / peak) * (H - 40);
+                  acc += h;
                   return (
                     <motion.rect
                       key={t}
@@ -101,17 +119,17 @@ function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number 
                     >
                       <title>{`${bucket} · ${t}: ${v}`}</title>
                     </motion.rect>
-                  )
+                  );
                 })}
               </g>
-            )
+            );
           })}
           {/* The number itself, while the bars are wide enough to carry it. Neighbours
               five-fold apart are unreadable by height alone, and that spread is the normal
               shape of this data rather than an accident to design around. */}
           {perColumn &&
             columns.map(([b, row], ci) => {
-              const sum = Object.values(row).reduce((acc, n) => acc + n, 0)
+              const sum = Object.values(row).reduce((acc, n) => acc + n, 0);
               return (
                 <motion.text
                   key={`v-${b}`}
@@ -124,43 +142,70 @@ function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.25, delay: 0.15 }}
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                  style={{ fontVariantNumeric: "tabular-nums" }}
                 >
-                  {sum.toLocaleString('en-US')}
+                  {sum.toLocaleString("en-US")}
                 </motion.text>
-              )
+              );
             })}
-          <line x1={0} x2={W} y1={H - 20} y2={H - 20} stroke="var(--line)" strokeWidth={1.5} />
+          <line
+            x1={0}
+            x2={W}
+            y1={H - 20}
+            y2={H - 20}
+            stroke="var(--line)"
+            strokeWidth={1.5}
+          />
           {perColumn
             ? columns.map(([b], ci) => (
-                <text key={b} x={ci * (bw + gap) + bw / 2} y={H - 5} fontSize={11}
-                      textAnchor="middle" fill="var(--muted)"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <text
+                  key={b}
+                  x={ci * (bw + gap) + bw / 2}
+                  y={H - 5}
+                  fontSize={11}
+                  textAnchor="middle"
+                  fill="var(--muted)"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
                   {tick(b, stats?.bucket)}
                 </text>
               ))
             : [
-                <text key="a" x={0} y={H - 5} fontSize={11} fill="var(--muted)"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <text
+                  key="a"
+                  x={0}
+                  y={H - 5}
+                  fontSize={11}
+                  fill="var(--muted)"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
                   {tick(columns[0][0], stats?.bucket)}
                 </text>,
-                <text key="b" x={W} y={H - 5} fontSize={11} fill="var(--muted)" textAnchor="end"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <text
+                  key="b"
+                  x={W}
+                  y={H - 5}
+                  fontSize={11}
+                  fill="var(--muted)"
+                  textAnchor="end"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
                   {tick(columns.at(-1)![0], stats?.bucket)}
                 </text>,
               ]}
         </svg>
       </div>
       <p className="axis-note">
-        {columns.length} {stats?.bucket ?? ''} bucket{columns.length === 1 ? '' : 's'} ·
-        tallest {peak.toLocaleString('en-US')} events
+        {columns.length} {stats?.bucket ?? ""} bucket
+        {columns.length === 1 ? "" : "s"} · tallest{" "}
+        {peak.toLocaleString("en-US")} events
         {/* The age belongs here rather than in a pill of its own: this view does not
             poll, so without it a stale snapshot reads as a live one. */}
         {computedAt !== null &&
           ` · computed ${Math.round((Date.now() - computedAt) / 1000)}s ago`}
       </p>
     </>
-  )
+  );
 }
 
 export default function StatsPanel({
@@ -168,16 +213,23 @@ export default function StatsPanel({
   onBucket,
   stats,
 }: {
-  bucket: Bucket
-  onBucket: (b: Bucket) => void
+  bucket: Bucket;
+  onBucket: (b: Bucket) => void;
   /** Polled once, in the composition root: the stack panel reads the same answer. */
-  stats: ReturnType<typeof useStats>
+  stats: ReturnType<typeof useStats>;
 }) {
-  const [tab, setTab] = useState<TabId>('query')
-  const { query, realtime, stale, latency, computedAt, loadingQuery, reloadQuery } =
-    stats
+  const [tab, setTab] = useState<TabId>("query");
+  const {
+    query,
+    realtime,
+    stale,
+    latency,
+    computedAt,
+    loadingQuery,
+    reloadQuery,
+  } = stats;
 
-  const shown = tab === 'query' ? query : realtime
+  const shown = tab === "query" ? query : realtime;
 
   return (
     <div className="card span-12">
@@ -199,45 +251,62 @@ export default function StatsPanel({
             the cache is keyed per bucket, so switching there is a different question than
             the one this tab is asking.
 
-            Driven by CSS, not by AnimatePresence, for the reason the `.swap` below already
-            documents: this subtree re-renders every two seconds from the stats poll, and
-            framer's exit never resolved against it. Measured six seconds after switching
-            to the Live tab, the row was still mounted at `opacity: 1` with its transform
-            frozen part-way - so the tab that has no buckets was offering three of them.
-            `mode="popLayout"` failed exactly as `mode="wait"` had, which corrects what I
-            wrote when I first hit this: the mode was never the cause. A CSS transition
-            declares the destination instead of animating toward it, and a re-render cannot
-            interrupt what it does not drive. */}
-        <div className="row tab-extra" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
-          {BUCKETS.map((b) => (
-            <button
-              key={b}
-              onClick={() => onBucket(b)}
-              className={bucket === b ? 'primary' : undefined}
-              style={{ padding: '6px 14px', fontSize: '.85rem' }}
-            >
-              {b}
-            </button>
-          ))}
-          {/* Beside the buckets, because it belongs to the same control: these four are
+            Rendered conditionally, with the entrance as decoration and nothing resting
+            on it. Under AnimatePresence this row survived onto the Live tab, still visible
+            and still clickable, so the view with no buckets kept offering three of them.
+            I could not establish why — every measurement had `document.hidden` true, and
+            Chrome throttles the loop framer animates with in exactly that state, so the
+            re-render and the throttle both explain it and I could not separate them. See
+            index.css. What follows from either: whether a control is on screen must not
+            wait on an animation finishing. */}
+        {tab === "query" && (
+          <div className="row enter-side">
+            {BUCKETS.map((b) => (
+              <button
+                key={b}
+                onClick={() => onBucket(b)}
+                className={bucket === b ? "primary" : undefined}
+                style={{ padding: "6px 14px", fontSize: ".85rem" }}
+              >
+                {b}
+              </button>
+            ))}
+            {/* Beside the buckets, because it belongs to the same control: these four are
               what decides which snapshot you are looking at. Icon only — a word would
               outweigh the three it sits next to. */}
-          <button
-            className="icon-btn"
-            onClick={() => void reloadQuery()}
-            disabled={loadingQuery}
-            aria-label="recompute this aggregation"
-            title="Recompute"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
-                 className={loadingQuery ? 'spin' : undefined}>
-              <path d="M20 11a8 8 0 1 0-2.3 5.7" fill="none" stroke="currentColor"
-                    strokeWidth="2.2" strokeLinecap="round" />
-              <path d="M20 4.5V11h-6.5" fill="none" stroke="currentColor"
-                    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
+            <button
+              className="icon-btn"
+              onClick={() => void reloadQuery()}
+              disabled={loadingQuery}
+              aria-label="recompute this aggregation"
+              title="Recompute"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className={loadingQuery ? "spin" : undefined}
+              >
+                <path
+                  d="M20 11a8 8 0 1 0-2.3 5.7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M20 4.5V11h-6.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="row" style={{ marginBottom: 14 }}>
@@ -245,13 +314,16 @@ export default function StatsPanel({
             tab's bucket in both views, so the live chart announced itself as "hourly"
             while drawing ten-second bins. */}
         <span className="pill">
-          {(shown?.total ?? 0).toLocaleString('en-US')} events ·{' '}
-          {tab === 'query'
+          {(shown?.total ?? 0).toLocaleString("en-US")} events ·{" "}
+          {tab === "query"
             ? bucket
             : `last ${Math.round((realtime?.window_seconds ?? 600) / 60)} min`}
         </span>
         {stale && (
-          <span className="pill" style={{ borderColor: 'var(--inflight)', color: 'var(--inflight)' }}>
+          <span
+            className="pill"
+            style={{ borderColor: "var(--inflight)", color: "var(--inflight)" }}
+          >
             last poll failed
           </span>
         )}
@@ -264,20 +336,29 @@ export default function StatsPanel({
           showed nothing at all. A CSS transition declares the destination instead of
           animating toward it, so a re-render cannot interrupt what it does not drive. */}
       <div className="swap">
-        <div className="swap-view" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
+        <div
+          className="swap-view"
+          data-on={tab === "query"}
+          aria-hidden={tab !== "query"}
+        >
           <Chart stats={query} computedAt={computedAt} />
           <p className="note">
-            A MongoDB aggregation. <code>$dateTrunc</code> buckets inside the database, so
-            documents never cross the network just to be counted. It is a snapshot: it
-            refetches when you change the bucket, when you ingest, or when you ask.
+            A MongoDB aggregation. <code>$dateTrunc</code> buckets inside the
+            database, so documents never cross the network just to be counted.
+            It is a snapshot: it refetches when you change the bucket, when you
+            ingest, or when you ask.
           </p>
         </div>
 
-        <div className="swap-view" data-on={tab === 'realtime'} aria-hidden={tab !== 'realtime'}>
+        <div
+          className="swap-view"
+          data-on={tab === "realtime"}
+          aria-hidden={tab !== "realtime"}
+        >
           <LiveChart live={realtime} />
           <div className="row" style={{ marginTop: 10 }}>
             <span className="pill">
-              {realtime?.cached ? 'served from cache' : 'recomputed'}
+              {realtime?.cached ? "served from cache" : "recomputed"}
             </span>
             {/* Not "Ns old". With the filling bin excluded, a cached answer is not a stale
                 version of now — it is the exact answer for a window that ended. What the
@@ -290,12 +371,12 @@ export default function StatsPanel({
             )}
           </div>
           <p className="note">
-            Arrivals in two-second bins, placed by each event's own timestamp, stamped at
-            the HTTP edge before the queue. Every bin shown has closed, so the cached answer
-            is exact for the window it covers.
+            Arrivals in two-second bins, placed by each event's own timestamp,
+            stamped at the HTTP edge before the queue. Every bin shown has
+            closed, so the cached answer is exact for the window it covers.
           </p>
         </div>
       </div>
     </div>
-  )
+  );
 }

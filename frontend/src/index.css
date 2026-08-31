@@ -252,20 +252,35 @@ tr:last-child td { border-bottom: none; }
   pointer-events: none; transition: opacity 200ms ease, transform 200ms ease; }
 .swap-view[data-on='true'] { opacity: 1; transform: none; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .swap-view { transition: none } }
-/* The bucket controls, which belong to the History tab only.
-   Same reasoning as `.swap-view` above and the same measured failure: framer's exit does
-   not resolve in this subtree, which re-renders every two seconds from the stats poll.
-   Measured stuck at `opacity: 1; translateX(6.7px)` six seconds after the switch - the
-   row simply never left, so the Live tab offered controls that do not apply to it.
-   `mode="popLayout"` fails here exactly as `mode="wait"` did, which corrects what I
-   concluded earlier: the mode was never the cause, the re-render is.
-   `visibility` rather than opacity alone, because a control that is merely transparent is
-   still clickable and still in the tab order. */
-.tab-extra { opacity: 0; visibility: hidden; transform: translateX(10px);
-  transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms; }
-.tab-extra[data-on='true'] { opacity: 1; visibility: visible; transform: none;
-  transition: opacity 180ms ease, transform 180ms ease, visibility 0s; }
-@media (prefers-reduced-motion: reduce) { .tab-extra { transition: none } }
+/* Entrance flourish, and nothing else depends on it.
+   Twice today an element stayed on screen because an exit animation never finished: the
+   History tab's bucket controls survived onto the Live tab still clickable, and the
+   "paused" pill went on announcing a stopped worker after it had resumed. Both were
+   AnimatePresence exits inside rows that re-render on a poll.
+
+   I could not establish the cause. Every measurement was taken with `document.hidden`
+   true — the tab reported itself backgrounded and I could not foreground it from here —
+   and Chrome throttles the rAF loop framer animates with in exactly that state. So
+   "the re-render interrupts the exit" and "the animation loop is throttled" both fit what
+   I saw, and I could not separate them.
+
+   What does not depend on knowing: **correctness must not wait on an animation.**
+   Whether an element is on screen is now plain conditional rendering, so an animation
+   that never runs costs a flourish and never a wrong reading.
+
+   And the keyframes touch transform only, never opacity. My first attempt faded in from
+   `opacity: 0` on the reasoning that an animation which never runs leaves the element at
+   its normal style — but an animation that is *paused at its first frame* holds that
+   frame, which is not the same thing at all. The cache pill sat at opacity 0, invisible,
+   in exactly the state this rule existed to prevent. Frozen at the first frame of a
+   transform-only keyframe, an element is four pixels out of place and perfectly legible. */
+.enter-soft { animation: enter-soft 180ms ease; }
+@keyframes enter-soft { from { transform: translateY(-4px) } }
+.enter-side { animation: enter-side 180ms ease; }
+@keyframes enter-side { from { transform: translateX(10px) } }
+@media (prefers-reduced-motion: reduce) {
+  .enter-soft, .enter-side { animation: none }
+}
 /* Square, so it reads as an affordance rather than a fourth option in the row. */
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; padding: 0; border-radius: 999px; color: var(--muted); }
