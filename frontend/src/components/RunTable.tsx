@@ -21,6 +21,9 @@ const clock = (at: number) =>
 export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () => void }) {
   if (runs.length === 0) return null
 
+  // Every bar is drawn against the slowest run in the log, so the column is a comparison
+  // rather than six unrelated pictures.
+  const scale = Math.max(...runs.map((r) => r.drainMs ?? r.acceptMs), 1)
   const events = runs.reduce((sum, r) => sum + r.accepted, 0)
   const drained = runs.filter((r) => r.drainMs !== null)
   const totalDrain = drained.reduce((sum, r) => sum + (r.drainMs ?? 0), 0)
@@ -30,6 +33,9 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
     <motion.div className="runs" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="runs-head">
         <h2>Measured runs</h2>
+        <span className="legend">
+          <i className="sw-accept" /> accepted <i className="sw-drain" /> draining
+        </span>
         <button className="link" onClick={onClear}>
           Clear history
         </button>
@@ -37,6 +43,17 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
 
       <div className="scroll">
         <table>
+          {/* Fixed widths for the figures, so the whole of the remaining width goes to the
+              bars. Left to itself the browser spread five narrow columns across the card
+              and the numbers drifted apart until they stopped reading as rows. */}
+          <colgroup>
+            <col style={{ width: 96 }} />
+            <col style={{ width: 72 }} />
+            <col style={{ width: 96 }} />
+            <col style={{ width: 88 }} />
+            <col style={{ width: 96 }} />
+            <col />
+          </colgroup>
           <thead>
             <tr>
               <th>when</th>
@@ -44,6 +61,7 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
               <th>accepted</th>
               <th>total</th>
               <th>per event</th>
+              <th>accepted ▸ drained</th>
             </tr>
           </thead>
           <tbody>
@@ -59,6 +77,20 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
                       ? `${(r.drainMs / r.accepted).toFixed(1)}ms`
                       : '—'}
                   </td>
+                  {/* The gap the paragraph below argues for, drawn. Ink is the part the
+                      caller waited through; cyan is the work that outlived the response. */}
+                  <td className="bar-cell">
+                    <div
+                      className="bar"
+                      style={{ width: `${((r.drainMs ?? r.acceptMs) / scale) * 100}%` }}
+                      title={`${r.acceptMs}ms accepted, ${r.drainMs ?? '—'}ms to drain`}
+                    >
+                      <span
+                        className="bar-accept"
+                        style={{ width: `${(r.acceptMs / (r.drainMs ?? r.acceptMs)) * 100}%` }}
+                      />
+                    </div>
+                  </td>
                 </motion.tr>
               ))}
             </AnimatePresence>
@@ -73,19 +105,17 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
                 <td className="num sub">
                   {drainedEvents > 0 ? `${(totalDrain / drainedEvents).toFixed(1)}ms` : '—'}
                 </td>
+                <td />
               </tr>
             </tfoot>
           )}
         </table>
       </div>
 
-      <p className="note" style={{ marginTop: 10 }}>
-        <strong>Accepted</strong> is how long the API took to answer — bounded by the
-        client, not the pipeline. <strong>Total</strong> is end to end: from the first
-        request until the queue was empty again, which is the worker&rsquo;s number. The
-        gap between the two columns is the asynchrony, and the reason ingestion returns{' '}
-        <code>202</code> rather than waiting for the writes. The log is kept in this
-        browser only, and survives a reload.
+      <p className="note wide">
+        <strong>Accepted</strong> is the client&rsquo;s number, <strong>total</strong> is
+        the worker&rsquo;s. The gap between them is the asynchrony — why ingestion answers{' '}
+        <code>202</code> instead of waiting for the writes. Kept in this browser only.
       </p>
     </motion.div>
   )

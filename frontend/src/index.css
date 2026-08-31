@@ -84,6 +84,9 @@ header.top .sub { color: var(--muted); font-size: 0.95rem; margin-left: auto;
 }
 .card .note { color: var(--muted); font-size: 0.92rem; margin-top: 14px;
   line-height: 1.65; max-width: 62ch; }
+/* A caption under a full-width table, not a column of prose: the 62ch measure exists for
+   paragraphs the reader works through, and this is a line they glance at. */
+.card .note.wide { max-width: none; margin-top: 12px; }
 
 .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; }
 .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
@@ -286,7 +289,8 @@ svg[data-motion='on'] .flow circle { animation-play-state: running; }
 }
 
 /* ---- what each burst size costs ---- */
-.runs { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); max-width: 640px; }
+.runs { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.runs-head { flex-wrap: wrap; }
 .runs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
   margin-bottom: 10px; }
 .runs-head h2 { margin: 0; font-size: .72rem; font-weight: 700; letter-spacing: .09em;
@@ -304,3 +308,14 @@ button.link:hover { color: var(--navy); }
 .runs tfoot td { border-top: 2px solid var(--line); border-bottom: none; padding-top: 10px;
   font-weight: 700; }
 .runs tfoot td:first-child { color: var(--muted); font-weight: 600; }
+/* The bar is why the table is worth its full width: two runs of the same size that
+   disagree show it here before the figures are read. */
+.runs td.bar-cell { padding-right: 0; vertical-align: middle; }
+.bar { height: 9px; min-width: 3px; border-radius: 999px; background: var(--cyan);
+  overflow: hidden; }
+.bar-accept { display: block; height: 100%; background: var(--navy); }
+.legend { display: inline-flex; align-items: center; gap: 6px; font-size: .72rem;
+  color: var(--muted); margin-right: auto; }
+.legend i { width: 20px; height: 8px; border-radius: 999px; display: inline-block; }
+.legend .sw-accept { background: var(--navy); }
+.legend .sw-drain { background: var(--cyan); margin-left: 8px; }
