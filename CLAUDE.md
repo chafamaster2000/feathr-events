@@ -47,7 +47,7 @@ Before considering any task that touches ingestion done:
 ```bash
 make health                              # three dependencies up, plus queue depth
 python3 scripts/logcheck.py --level WARN # did any container complain?
-uv run pytest -q                         # 21 tests
+uv run pytest -q                         # 72 tests
 ```
 
 Without all three, it is not done. Queue depth is the most informative number in the

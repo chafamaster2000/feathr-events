@@ -109,16 +109,76 @@ class ElasticEventIndex:
     def __init__(self, es: AsyncElasticsearch, index: str) -> None:
         self._es = es
         self._index = index
+        # Whether the mapping is known to be in place. Startup tolerates `ensure_schema`
+        # failing, so this cannot be assumed from the fact that the app is running.
+        self._ready = False
 
     async def index(self, event: Event) -> None:
         """Also idempotent: the document `_id` is the `event_id`."""
+        guard("elasticsearch")
+        # Never write into an index that might not exist yet. Elasticsearch creates one
+        # on first write by default, with a *dynamic* mapping, and that is the failure
+        # §3 spends pages preventing: `event_type` comes out `text` instead of `keyword`,
+        # so the exact-term boost and every aggregation over it stop working, and
+        # `metadata` comes out as one field per key - the mapping explosion `flattened`
+        # exists to avoid. Verified against this cluster rather than assumed.
+        #
+        # The sequence that reached it: Elasticsearch unreachable at startup, which the
+        # lifespan deliberately tolerates so a schema problem does not become an outage;
+        # Elasticsearch recovers; the worker's first write auto-creates. Nothing detects
+        # it, no restart heals it - `ensure_schema` sees an index and returns - and the
+        # only recovery is a person knowing to run `scripts/reindex.py --recreate`.
+        #
+        # One `exists` call, once, and never again after it succeeds. The startup path is
+        # allowed to fail; this one is not.
+        if not self._ready:
+            await self.ensure_schema()
         doc = event.model_dump(mode="json")
         doc.pop("event_id")
-        guard("elasticsearch")
         await self._es.index(index=self._index, id=event.event_id, document=doc)
 
     async def ensure_schema(self) -> None:
+        """The template first, then the index.
+
+        The template is not redundant with the create below. It is what makes an
+        auto-created index correct anyway - if the index is deleted, if `/demo/reset`
+        races a worker between its delete and its create, if anything at all writes
+        before this runs. `create` fixes the expected path; the template fixes the
+        unexpected ones, which is where the dynamic mapping actually came from.
+        """
+        await self._es.indices.put_index_template(
+            name=f"{self._index}-template",
+            index_patterns=[self._index],
+            template={"mappings": INDEX_MAPPING},
+        )
         if await self._es.indices.exists(index=self._index):
+            await self._warn_if_the_mapping_is_wrong()
+        else:
+            await self._es.indices.create(index=self._index, mappings=INDEX_MAPPING)
+            log.info("created elasticsearch index: %s", self._index)
+        self._ready = True
+
+    async def _warn_if_the_mapping_is_wrong(self) -> None:
+        """Say so rather than repair it.
+
+        An index that already exists with the wrong mapping holds real documents, and
+        deleting it to fix a mapping is a decision an application should never take on
+        its own. What it *can* do is stop the condition being silent: before this, a
+        dynamically-mapped index looked exactly like a healthy one from the outside -
+        searches simply returned different results, with no error anywhere.
+        """
+        try:
+            mapping = await self._es.indices.get_mapping(index=self._index)
+            properties = next(iter(mapping.body.values()))["mappings"]["properties"]
+            found = properties.get("event_type", {}).get("type")
+        except (KeyError, StopIteration, TypeError):  # a mapping we cannot read is not a verdict
             return
-        await self._es.indices.create(index=self._index, mappings=INDEX_MAPPING)
-        log.info("created elasticsearch index: %s", self._index)
+        if found != "keyword":
+            log.error(
+                "elasticsearch index %s has event_type mapped as %r, not 'keyword'. It was "
+                "created dynamically rather than from INDEX_MAPPING, so metadata is not "
+                "flattened either: exact-type matching and every aggregation over it are "
+                "wrong. Run scripts/reindex.py --recreate. See ARCHITECTURE.md §3.",
+                self._index,
+                found,
+            )

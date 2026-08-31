@@ -175,13 +175,20 @@ def client_of(scope: dict[str, Any], *, trust_forwarded_for: bool) -> str:
     `X-Forwarded-For` is trusted only when configured, and that default is the whole
     point: the header is written by the caller, so honouring it unconditionally lets
     anyone hold a fresh bucket per request and defeat the limiter completely. It is
-    correct behind a proxy that overwrites the header, and a vulnerability everywhere
-    else — which is why it is a deployment decision rather than a default.
+    a deployment fact rather than a default.
+
+    And when it is trusted, the **rightmost** entry is the one to take, not the leftmost.
+    The list grows left to right as it is forwarded, so the leftmost entry is whatever the
+    original client wrote — the one value an attacker fully controls — while the rightmost
+    was appended by the nearest proxy. Taking the leftmost is the classic spoof, and it
+    fails in exactly the deployment this setting exists for: nginx's
+    `proxy_add_x_forwarded_for` *appends*, so turning the knob on with a leftmost read
+    would have converted a hardened limiter into no limiter at all.
     """
     if trust_forwarded_for:
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         if forwarded := headers.get("x-forwarded-for"):
-            return forwarded.split(",")[0].strip()
+            return forwarded.rsplit(",", 1)[-1].strip()
     client = scope.get("client")
     return client[0] if client else "unknown"
 

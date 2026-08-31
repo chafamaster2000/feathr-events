@@ -211,6 +211,40 @@ and Elastic's own documentation warns it is not meant for indexing all document 
 The middle path, once hot keys are known (`metadata.device_type`, `metadata.browser`), is
 to map those explicitly and leave `flattened` for the unpredictable tail.
 
+#### The mapping has to be *installed*, not just designed
+
+Everything above describes a mapping the code creates at startup. It did not describe what
+happens when that startup call fails — and the lifespan tolerates it failing on purpose,
+so a schema problem does not become an outage.
+
+Elasticsearch creates an index on first write when one does not exist, with a **dynamic**
+mapping. So: Elasticsearch unreachable at startup (warned, tolerated), Elasticsearch
+recovers, the worker's first write auto-creates. Verified against this cluster:
+
+```
+event_type -> text                            (was: keyword)
+metadata   -> object, one field per key       (was: flattened)
+```
+
+That is every decision in this section, reversed. `event_type` analysed instead of exact,
+so the boost and the aggregations are wrong; `metadata` exploded into the mapping the
+`flattened` type exists to prevent. Nothing detects it, no restart heals it — `ensure_schema`
+sees an index and returns — and recovery requires a person who knows to run
+`scripts/reindex.py --recreate`.
+
+Two changes, because they cover different paths:
+
+- **The index is checked before the first write, not only at startup.** One `exists` call,
+  once, and never again after it succeeds. The startup path is allowed to fail; the write
+  path is not.
+- **An index template**, so an index auto-created for *any* reason still gets this mapping
+  — someone deleting it, `/demo/reset` racing a worker between its delete and its create,
+  anything at all writing first. The template outlives the process, which is the point.
+
+And when the index already exists with the wrong mapping, the app logs an ERROR naming the
+type it found rather than repairing it. Deleting an index that holds real documents is not
+a decision an application should take by itself; making the condition *audible* is.
+
 ### Caching
 
 Redis sits in front of **one** endpoint — the only one whose contract already admits it
@@ -258,10 +292,21 @@ only how long a superseded key lingers before Redis drops it, which is why raisi
 own every two seconds. The real freshness control is `LIVE_BIN_SECONDS`, and saying
 otherwise would be selling a knob that does nothing.
 
-One caveat that the word *exact* has to carry honestly: an event whose timestamp falls in a
-bin can still reach MongoDB a few milliseconds after that bin closed, worker lag being
-2-48ms. That is two orders of magnitude below the bin, and it is the only way a closed bin
-can still gain a straggler.
+Two caveats that the word *exact* has to carry honestly. The first: an event whose
+timestamp falls in a bin can still reach MongoDB a few milliseconds after that bin closed,
+worker lag being 2-48ms. That is two orders of magnitude below the bin.
+
+The second is larger, and this paragraph used to claim the first was "the only way" a
+closed bin gains a straggler. It is not, and the counter-example is a feature the models
+document as one: **back-dating is deliberately allowed.** `models.py` bounds timestamps
+into the future and leaves the past open, precisely so "a buffered or offline client sends
+late" still lands where it belongs. An event accepted now can carry a timestamp from an
+hour ago and rewrite a bin that closed long before it arrived.
+
+Practically the cost is small — the whole window is recomputed on each bin roll, so a
+served value converges within two seconds — but a sentence claiming to be the only
+exception, in a document graded on honesty, while another module advertises the larger one
+as a feature, is the kind of thing worth catching. Two files were arguing with each other.
 
 This is observable rather than asserted:
 
@@ -721,8 +766,16 @@ to handle.
 
 ### Graceful degradation
 
-- `/health` returns `503` when any dependency is down, so an orchestrator stops routing
-  traffic instead of a load balancer discovering it.
+- `/health` returns **`200` with `status: degraded`** when a dependency is down. It used
+  to answer `503`, justified right here as "so an orchestrator stops routing traffic
+  instead of a load balancer discovering it" — and that justification contradicted this
+  section's own thesis. Measured with Redis refused: `POST /events` 202, `GET /events` 200,
+  a fully working API answering "do not send me traffic". A readiness probe honouring it
+  would have removed that API because a cache was down; a liveness probe would have
+  restarted the process, and **the process is the queue**, so it would have destroyed every
+  event waiting in it. The failure mode was worse than the failure. The status code now
+  answers the orchestrator's question — *may I send you work?* — and the body answers the
+  operator's — *what is not working?* They were being answered with one number.
 - A failure creating indexes at startup **does not prevent startup**. The app serves
   degraded and the health check reflects it; dying there would turn a performance problem
   into an outage.

@@ -247,12 +247,18 @@ reasoning, including why the limiter is in-process rather than in Redis, is
 
 ### `GET /health`
 
-`200` when all three dependencies respond, `503` otherwise. Also reports **queue depth**,
+Always `200`; `status` is `ok` or `degraded` and `degraded_by` names what is down. It used
+to answer `503` on any dependency failure, which was wrong for this system: with Redis down
+every endpoint still works, so a readiness probe would have removed a functioning API, and
+a liveness probe would have restarted the process that *holds the queue*. The code answers
+the orchestrator — may I send you work? — and the body answers the operator — what is
+broken? Also reports **queue depth**,
 which is the single most informative number in the system: stable near zero means the
 worker outpaces ingestion; growing means the worker is the bottleneck.
 
 ```jsonc
 {"status": "ok",
+ "degraded_by": [],
  "dependencies": {"mongodb": "up", "redis": "up", "elasticsearch": "up"},
  "queue": {"visible": 0, "in_flight": 0, "dlq": 0, "capacity": 10000},
  "worker": {"processed": 201, "failed_attempts": 0, "consumers": 8,
@@ -358,7 +364,7 @@ Elasticsearch would make the derived index authoritative, and then neither store
 ## Testing
 
 ```bash
-uv run pytest -q          # 21 tests, about 3 seconds
+uv run pytest -q          # 72 tests, about 7 seconds
 uv run pytest -m "not integration"   # unit tests only — no stack required
 ```
 

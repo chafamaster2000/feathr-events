@@ -56,10 +56,16 @@ def _refuse_multiple_processes() -> None:
     """
     argv = sys.argv
     requested = None
-    for flag in ("--workers", "-w"):
-        if flag in argv:
-            index = argv.index(flag)
-            requested = argv[index + 1] if index + 1 < len(argv) else "?"
+    for i, arg in enumerate(argv):
+        # Both spellings. `--workers 2` and `--workers=2` are the same instruction to
+        # click, which is what uvicorn parses its arguments with, and only the first was
+        # being caught - so the ordinary way of writing the flag walked straight past the
+        # guard for what this module calls "the worst kind of bug". §4b leans on this
+        # function twice as the reason the queue *and* the rate limiter can stay in
+        # process; a premise with a hole in it was holding up two decisions.
+        name, _, inline = arg.partition("=")
+        if name in ("--workers", "-w"):
+            requested = inline or (argv[i + 1] if i + 1 < len(argv) else "?")
     requested = requested or os.environ.get("WEB_CONCURRENCY")
 
     if requested is not None and requested not in ("1", "?"):
@@ -337,14 +343,36 @@ async def health(request: Request) -> JSONResponse:
 
     Depth is the most informative number in the system: stable near zero means the worker
     outpaces ingestion; growing means the worker is the bottleneck.
+
+    **`degraded` is still a `200`, and that is a correction.** This used to answer `503`
+    whenever any dependency was down, justified in §6 as "so an orchestrator stops routing
+    traffic instead of a load balancer discovering it". Applied to this system that
+    justification is wrong twice over, and Redis makes it obvious: with Redis down every
+    endpoint still answers - `POST /events` 202, `GET /events` 200, measured - and the only
+    thing that changes is that one aggregation is recomputed instead of read from cache.
+    A readiness probe honouring the old 503 would have removed a fully working API because
+    a cache was unavailable; a liveness probe would have restarted the process, and the
+    process **is** the queue, so it would have destroyed every event waiting in it. The
+    failure mode was worse than the failure.
+
+    And the argument was not Redis-specific. Ingestion survives all three being down - it
+    validates and enqueues, which touches no dependency at all - so there is no dependency
+    outage that should stop traffic reaching this process. §6's whole thesis is that the
+    system degrades rather than fails; a status code that says "do not send me traffic"
+    contradicted it in the same document.
+
+    So the code answers the orchestrator's question - *may I send you work?* - and the body
+    answers the operator's - *what is not working?* They are different questions and were
+    being answered with one number.
     """
     state = request.app.state
     deps = await clients.health(state.clients)
-    ok = all(v == "up" for v in deps.values())
+    down = [name for name, value in deps.items() if value != "up"]
     return JSONResponse(
-        status_code=200 if ok else 503,
+        status_code=200,
         content={
-            "status": "ok" if ok else "degraded",
+            "status": "ok" if not down else "degraded",
+            "degraded_by": down,
             "dependencies": deps,
             "queue": state.queue.stats(),
             "worker": state.worker.stats(),

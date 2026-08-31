@@ -309,9 +309,13 @@ class InMemoryEventQueue:
                 # no output: an operator tailing WARN saw five identical retry warnings
                 # and then silence, which looks exactly like recovery.
                 if len(self._dlq) == DLQ_MAXLEN:
+                    # The one being *discarded*, which is the only one about to become
+                    # unrecoverable. Naming the arrival instead told the operator about the
+                    # event that was fine and said nothing about the one being lost.
                     log.error(
-                        "dead-letter queue is full at %d; dropping the oldest to admit %s",
+                        "dead-letter queue is full at %d; discarding %s to admit %s",
                         DLQ_MAXLEN,
+                        self._dlq[0].event_id,
                         entry.event.event_id,
                     )
                 # The whole event, not a summary. The dead-letter lives in this process's

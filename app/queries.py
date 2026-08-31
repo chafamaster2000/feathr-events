@@ -23,6 +23,7 @@ from enum import StrEnum
 from typing import Any
 
 from elasticsearch import AsyncElasticsearch
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.stores import COLLECTION
@@ -58,6 +59,18 @@ LIVE_BIN_SECONDS = 2
 _UNSAFE_IN_PREFIX = re.compile(r"[^a-z0-9 _\-./:]")
 
 
+def _normalise_url(raw: str) -> str:
+    """Put a filter value through the same normalisation the write path applied.
+
+    Falls back to the raw string when it will not parse: a caller filtering on something
+    that was never a valid URL should get no matches, not a 500.
+    """
+    try:
+        return str(TypeAdapter(HttpUrl).validate_python(raw))
+    except ValidationError:
+        return raw
+
+
 class EventQueries:
     def __init__(self, db: AsyncDatabase, es: AsyncElasticsearch, index: str) -> None:
         self._col = db[COLLECTION]
@@ -87,7 +100,16 @@ class EventQueries:
         if user_id:
             f["user_id"] = user_id
         if source_url:
-            f["source_url"] = source_url
+            # Normalised the same way it was on write, for the same reason as the line
+            # above - and it was not, which made the most obvious round-trip in the API
+            # return nothing. Pydantic's `HttpUrl` normalises on ingest: a bare authority
+            # gains a trailing slash and the host is lower-cased. So posting
+            # `https://shop.example.com` stored `https://shop.example.com/`, and asking
+            # for events at the exact URL you had just sent matched zero documents.
+            #
+            # Silent, which is what made it worth fixing rather than documenting: an empty
+            # result is a legal answer, so nothing anywhere reported a problem.
+            f["source_url"] = _normalise_url(source_url)
         if since or until:
             window: dict[str, datetime] = {}
             if since:

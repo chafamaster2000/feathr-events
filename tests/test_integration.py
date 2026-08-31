@@ -269,3 +269,126 @@ async def test_the_two_kinds_of_429_are_told_apart(client: httpx.AsyncClient) ->
     assert response.status_code == 429
     assert response.headers["x-throttle-reason"] == "queue_full"
     assert response.headers["retry-after"] == "1"
+
+
+async def test_a_url_can_be_filtered_by_exactly_what_was_posted(
+    client: httpx.AsyncClient,
+) -> None:
+    """The most obvious round-trip in the API, and it used to return nothing.
+
+    Pydantic's `HttpUrl` normalises on ingest — a bare authority gains a trailing slash —
+    so posting `https://roundtrip.example.com` stored a different string than the caller
+    sent, and asking for it back matched zero documents. Silent, because an empty result
+    is a legal answer.
+    """
+    posted = "https://roundtrip.example.com"
+    response = await client.post(
+        "/events",
+        json={
+            "event_type": "click",
+            "user_id": "u-roundtrip",
+            "source_url": posted,
+            "metadata": {},
+        },
+    )
+    await eventually(
+        lambda: mongo_doc(client, response.json()["event_id"]),
+        what="the event landing in MongoDB",
+    )
+
+    found = await client.get("/events", params={"source_url": posted})
+
+    assert found.json()["count"] == 1, "the URL as sent did not find the event it created"
+    # And the normalised spelling keeps working, so nothing was traded away for it.
+    normalised = await client.get("/events", params={"source_url": posted + "/"})
+    assert normalised.json()["count"] == 1
+
+
+async def test_a_cache_outage_does_not_tell_the_orchestrator_to_stop_sending_traffic(
+    client: httpx.AsyncClient,
+) -> None:
+    """`degraded` is a 200. The failure mode of the old 503 was worse than the failure.
+
+    With Redis down the API is entirely functional — ingestion never touches it, and the
+    one cached read recomputes. A readiness probe honouring a 503 here would have removed
+    a working API because a cache was unavailable; a liveness probe would have restarted
+    the process, and the process holds the queue, so it would have destroyed every event
+    waiting in it.
+    """
+    from app import faults
+
+    faults.enable("redis")
+    try:
+        health = await client.get("/health")
+        ingest = await client.post(
+            "/events",
+            json={
+                "event_type": "click",
+                "user_id": "u-degraded",
+                "source_url": "https://shop.example.com/p/1",
+                "metadata": {},
+            },
+        )
+        read = await client.get("/events", params={"limit": 1})
+    finally:
+        faults.disable("redis")
+
+    assert health.status_code == 200, "a cache outage refused traffic to a working API"
+    assert health.json()["status"] == "degraded"
+    assert health.json()["degraded_by"] == ["redis"]
+    # The body says what is wrong; the code says the process can still take work.
+    assert ingest.status_code == 202
+    assert read.status_code == 200
+
+
+async def test_an_index_that_vanished_is_not_replaced_by_a_dynamic_one(
+    client: httpx.AsyncClient,
+) -> None:
+    """The failure §3 spends pages preventing, reachable in one ordinary sequence.
+
+    Elasticsearch unreachable at startup (which the lifespan deliberately tolerates, so a
+    schema problem does not become an outage), then Elasticsearch recovers, then the
+    worker's first write auto-creates the index with a *dynamic* mapping: `event_type`
+    comes out `text` instead of `keyword`, breaking exact-type matching and every
+    aggregation over it, and `metadata` comes out as one field per key — the mapping
+    explosion `flattened` exists to avoid. Nothing detected it and no restart healed it.
+
+    Simulated here by deleting the index out from under a running app, which is the same
+    starting position and also covers someone deleting it by hand.
+
+    Watched failing without the fix — `assert 'text' == 'keyword'` — but only after also
+    deleting the index template from the cluster. Templates outlive the application, which
+    is exactly why one is used, and it made the first check falsely green.
+    """
+    from app import clients
+
+    handles = await clients.connect()
+    try:
+        await handles.elasticsearch.options(ignore_status=404).indices.delete(
+            index=settings.elasticsearch_index
+        )
+
+        response = await client.post(
+            "/events",
+            json={
+                "event_type": "pageview",
+                "user_id": "u-mapping",
+                "source_url": "https://shop.example.com/p/1",
+                "metadata": {"browser": "firefox", "plan": "pro", "amount": 42},
+            },
+        )
+        await eventually(
+            lambda: mongo_doc(client, response.json()["event_id"]),
+            what="the event landing",
+        )
+        await refresh_index()
+
+        mapping = await handles.elasticsearch.indices.get_mapping(
+            index=settings.elasticsearch_index
+        )
+        properties = next(iter(mapping.body.values()))["mappings"]["properties"]
+    finally:
+        await clients.disconnect(handles)
+
+    assert properties["event_type"]["type"] == "keyword", "the index was created dynamically"
+    assert properties["metadata"]["type"] == "flattened", "metadata exploded into one field per key"

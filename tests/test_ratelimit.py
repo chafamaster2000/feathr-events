@@ -185,14 +185,21 @@ def test_forwarded_for_is_ignored_unless_it_is_trusted() -> None:
 
     An attacker sending a different `X-Forwarded-For` per request would hold a fresh
     bucket every time and never be limited at all.
+
+    And when it *is* trusted, the rightmost entry is the one to take. The list grows left
+    to right as it is forwarded, so the leftmost is whatever the client wrote - fully
+    attacker-controlled - and the rightmost was appended by the nearest proxy. nginx's
+    `proxy_add_x_forwarded_for` appends, so reading the leftmost would have turned the knob
+    on in exactly the deployment it exists for and produced no limiting whatsoever.
     """
     scope = {
         "client": ("10.0.0.1", 5000),
-        "headers": [(b"x-forwarded-for", b"203.0.113.9, 10.0.0.1")],
+        # What a spoofing client sends, then what the proxy appended.
+        "headers": [(b"x-forwarded-for", b"203.0.113.9, 198.51.100.7")],
     }
 
     assert client_of(scope, trust_forwarded_for=False) == "10.0.0.1"
-    assert client_of(scope, trust_forwarded_for=True) == "203.0.113.9"
+    assert client_of(scope, trust_forwarded_for=True) == "198.51.100.7"
 
 
 def test_a_missing_client_still_gets_a_bucket() -> None:

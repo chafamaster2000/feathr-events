@@ -106,3 +106,40 @@ def test_ordinary_metadata_passes() -> None:
     type, feature-specific data."""
     ordinary = {"browser": "firefox", "device": "mobile", "plan": "pro", "amount": 42}
     assert EventIn(**payload(metadata=ordinary)).metadata == ordinary
+
+
+def test_the_multi_process_guard_catches_both_spellings_of_the_flag() -> None:
+    """`--workers=2` and `--workers 2` are one instruction to click, which uvicorn uses.
+
+    Only the space-separated form was caught, so the ordinary way of writing the flag
+    walked past the guard for what `main.py` itself calls "the worst kind of bug". Two
+    decisions rest on this function — the queue and the rate limiter both stay in process
+    because it forbids the configuration that would break them — so a hole in it was
+    holding up more than itself.
+    """
+    import sys
+
+    from app.main import _refuse_multiple_processes
+
+    original = sys.argv
+    refused, allowed = [], []
+    try:
+        for argv in (
+            ["uvicorn", "app.main:app", "--workers=2"],
+            ["uvicorn", "-w=4"],
+            ["uvicorn", "--workers", "2"],
+            ["uvicorn", "-w", "8"],
+            ["uvicorn", "--workers=1"],
+            ["uvicorn", "app.main:app"],
+        ):
+            sys.argv = argv
+            try:
+                _refuse_multiple_processes()
+                allowed.append(argv[-1])
+            except RuntimeError:
+                refused.append(argv[-1])
+    finally:
+        sys.argv = original
+
+    assert refused == ["--workers=2", "-w=4", "2", "8"]
+    assert allowed == ["--workers=1", "app.main:app"]
