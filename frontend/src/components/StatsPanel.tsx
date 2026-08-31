@@ -30,7 +30,7 @@ function tick(iso: string, bucket?: string) {
 }
 
 /** Stacked counts per time bucket, by event type. */
-function Chart({ stats }: { stats: Stats | null }) {
+function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number | null }) {
   const { columns, types, peak } = useMemo(() => {
     const byBucket = new Map<string, Record<string, number>>()
     const seen = new Set<string>()
@@ -154,6 +154,10 @@ function Chart({ stats }: { stats: Stats | null }) {
       <p className="axis-note">
         {columns.length} {stats?.bucket ?? ''} bucket{columns.length === 1 ? '' : 's'} ·
         tallest {peak.toLocaleString('en-US')} events
+        {/* The age belongs here rather than in a pill of its own: this view does not
+            poll, so without it a stale snapshot reads as a live one. */}
+        {computedAt !== null &&
+          ` · computed ${Math.round((Date.now() - computedAt) / 1000)}s ago`}
       </p>
     </>
   )
@@ -214,6 +218,24 @@ export default function StatsPanel({
                   {b}
                 </button>
               ))}
+              {/* Beside the buckets, because it belongs to the same control: these four
+                  are what decides which snapshot you are looking at. Icon only — a word
+                  would outweigh the three it sits next to. */}
+              <button
+                className="icon-btn"
+                onClick={() => void reloadQuery()}
+                disabled={loadingQuery}
+                aria-label="recompute this aggregation"
+                title="Recompute"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
+                     className={loadingQuery ? 'spin' : undefined}>
+                  <path d="M20 11a8 8 0 1 0-2.3 5.7" fill="none" stroke="currentColor"
+                        strokeWidth="2.2" strokeLinecap="round" />
+                  <path d="M20 4.5V11h-6.5" fill="none" stroke="currentColor"
+                        strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -244,18 +266,7 @@ export default function StatsPanel({
           animating toward it, so a re-render cannot interrupt what it does not drive. */}
       <div className="swap">
         <div className="swap-view" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
-          <Chart stats={query} />
-          <div className="row" style={{ marginTop: 10 }}>
-            <span className="pill">
-              {computedAt
-                ? `computed ${Math.round((Date.now() - computedAt) / 1000)}s ago`
-                : 'computing…'}
-            </span>
-            <button onClick={() => void reloadQuery()} disabled={loadingQuery}
-                    style={{ padding: '6px 14px', fontSize: '.85rem' }}>
-              {loadingQuery ? 'Recomputing…' : 'Recompute'}
-            </button>
-          </div>
+          <Chart stats={query} computedAt={computedAt} />
           <p className="note">
             A MongoDB aggregation. <code>$dateTrunc</code> buckets inside the database, so
             documents never cross the network just to be counted. A snapshot, not a feed —

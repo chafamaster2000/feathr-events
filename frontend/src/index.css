@@ -252,6 +252,15 @@ tr:last-child td { border-bottom: none; }
   pointer-events: none; transition: opacity 200ms ease, transform 200ms ease; }
 .swap-view[data-on='true'] { opacity: 1; transform: none; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .swap-view { transition: none } }
+/* Square, so it reads as an affordance rather than a fourth option in the row. */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; border-radius: 999px; color: var(--muted); }
+.icon-btn:hover:not(:disabled) { color: var(--navy); }
+.icon-btn:disabled { opacity: .55; }
+.spin { animation: spin 700ms linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none } }
+
 .axis-note { margin: 8px 0 0; font-size: .78rem; color: var(--muted);
   font-variant-numeric: tabular-nums; }
 .combo-empty { margin: 2px 11px 8px; font-size: .88rem; color: var(--muted); }

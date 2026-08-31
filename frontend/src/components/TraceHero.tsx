@@ -90,7 +90,6 @@ export default function TraceHero({
         health={health}
         history={history}
         steps={steps}
-        running={running}
         ingesting={busy !== null}
         mode={mode}
       />

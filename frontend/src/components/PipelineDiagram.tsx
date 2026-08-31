@@ -157,14 +157,12 @@ export default function PipelineDiagram({
   health,
   history,
   steps,
-  running,
   ingesting,
   mode,
 }: {
   health: Health | null
   history: DepthSample[]
   steps: TraceStep[]
-  running: boolean
   ingesting: boolean
   mode: 'trace' | 'burst'
 }) {
@@ -373,12 +371,8 @@ export default function PipelineDiagram({
             )
           })}
 
-          {(running || ingesting) && (
-            <text x={W / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="var(--muted)"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {mode === 'trace' ? 'tracing…' : 'in flight…'}
-            </text>
-          )}
+          {/* No status caption. It sat centred under the drawing with nothing to attach
+              to, and it said what the moving markers and the lit edges already say. */}
         </svg>
       </div>
 
