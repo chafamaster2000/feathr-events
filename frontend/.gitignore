@@ -1,0 +1,8 @@
+# Installed by `npm ci` inside the image, and by `npm install` locally. The lockfile is
+# what gets committed - it is the reproducibility guarantee, the tree is not.
+node_modules/
+
+# Build output and incremental compiler state.
+dist/
+*.tsbuildinfo
+.vite/

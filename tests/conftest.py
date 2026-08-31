@@ -14,6 +14,12 @@ from collections.abc import AsyncIterator, Callable
 # --- must run before any `app.*` import -----------------------------------------------
 os.environ.setdefault("MONGO_DB", "feathr_test")
 os.environ.setdefault("ELASTICSEARCH_INDEX", "events_test")
+# Redis database 1, not 0. Isolating MongoDB and Elasticsearch is not enough: the cache
+# key is derived from the query parameters, so any other client asking for the same
+# aggregation - the console polls exactly this one every two seconds - shares the entry
+# and can overwrite it between a test's two reads. That produced a genuinely flaky
+# failure, and only while the dashboard happened to be open.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/1")
 # A 30s visibility timeout would make the retry test take 30 seconds. One second is
 # enough to observe the same behaviour.
 os.environ.setdefault("VISIBILITY_TIMEOUT", "1.0")
