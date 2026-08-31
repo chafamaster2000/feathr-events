@@ -18,6 +18,11 @@ export interface WorkerStats {
    *  events that gave up for good are the queue's `dlq`. */
   failed_attempts: number
   consumers: number
+  /** The worker stopped pulling because the stores are not answering. A paused worker and
+   *  an idle one both report zero throughput, and only one of them is a problem. */
+  paused: boolean
+  /** Seconds until it tries again with a single probe message. */
+  resumes_in: number
 }
 
 export interface Health {

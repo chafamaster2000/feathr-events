@@ -71,6 +71,25 @@ export default function StatusBar({
           <span className="pill" style={health?.worker.failed_attempts ? { color: 'var(--dead)' } : undefined}>
             failed attempts {health?.worker.failed_attempts ?? '…'}
           </span>
+          {/* Only while it is true. A pill reading "paused no" is noise on every normal
+              render, and the state it describes is the one the reader needs to notice
+              immediately — a queue filling beside a worker that otherwise looks healthy. */}
+          <AnimatePresence>
+            {health?.worker.paused && (
+              <motion.span
+                key="paused"
+                className="pill"
+                style={{ borderColor: 'var(--dead)', color: 'var(--dead)' }}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.2 }}
+                title="The stores stopped answering, so the worker stopped taking work it cannot do. The backlog waits in the queue instead of spending delivery attempts and dead-lettering."
+              >
+                paused · probing in {Math.ceil(health.worker.resumes_in)}s
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
       </div>
       <p className="note">

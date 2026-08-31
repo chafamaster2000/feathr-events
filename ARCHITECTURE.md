@@ -368,6 +368,10 @@ The growing timeout also conflates two different things: how long a consumer is 
 process a message, and how long to wait before trying again. A message on its fifth
 attempt that fails in five seconds still sits invisible for the remaining 475.
 
+And `maxReceiveCount` answers "how many deliveries" when the question an operator cares
+about is "was this message the problem". The queue cannot separate those; the consumer
+can, and §6 is where it does.
+
 ### On deduplication
 
 The brief lists "event deduplication logic in the worker" as a bonus. There is
@@ -602,7 +606,7 @@ can see.
 
 | Component down | Ingestion | Reads | Data loss? | Recovery |
 |---|---|---|---|---|
-| **MongoDB** | Accepts | Degraded | No, if it returns in time | The worker never reaches its `delete`; the message returns by timeout with growing backoff. The queue grows. After the retry limit, the DLQ |
+| **MongoDB** | Accepts | Degraded | No, if it returns in time | The worker never reaches its `delete`; the message returns by timeout with growing backoff. After three distinct events fail in a row the worker stops pulling, so the backlog waits instead of spending delivery attempts. The queue grows, and `/health` says the worker is paused |
 | **Elasticsearch** | Accepts | No search | **No** | MongoDB holds everything. Full reindex from the source of truth |
 | **Redis** | Accepts | Slower | No | Automatic. Every request hits the origin and the cache refills. This is why it runs without persistence |
 | **Worker** | Accepts | Stale data | **Yes — everything queued** | The queue is process memory |
@@ -612,12 +616,65 @@ The last two rows are the same row, and that is the honest cost of the design.
 
 **How long is "in time"?** Nobody had put a number on it. With the defaults the retry
 budget is 30 + 60 + 120 + 240 + 480 = **930 seconds**, so an outage past roughly **15
-minutes** routes everything accepted during it to the dead-letter queue. Two things make
-that worse than it sounds: dead-lettering frees the entry it came from, so the queue never
-fills and the `429` backpressure never fires — the API keeps answering 202 for events
+minutes** used to route everything accepted during it to the dead-letter queue. Two things
+made that worse than it sounds: dead-lettering frees the entry it came from, so the queue
+never fills and the `429` backpressure never fires — the API keeps answering 202 for events
 marching into the pit — and the dead-letter is process memory, so a restart takes them.
-The mitigation available today is the log: every dead-lettered event is written whole at
-ERROR, which is the only durable record an in-process queue can offer.
+
+### The dead-letter queue used to have false positives
+
+That budget was being spent on the wrong question. A dead-letter queue is for messages
+that cannot be processed; what the countdown actually measured was *how long the
+dependency had been down*, and those are not the same thing at all. Fifteen minutes of
+MongoDB being unreachable and a backlog of perfectly valid events would be filed as
+poison.
+
+The queue cannot tell the difference. From where it sits there is none: it sees a delivery
+that produced no delete, and that is all it ever sees. **The consumer can**, and the signal
+is not in any one message:
+
+> One event failing over and over is a message problem. *Different* events failing in an
+> unbroken run is not about the events.
+
+So `SinkCircuit` (`app/worker.py`) counts distinct events that fail consecutively, and at
+three it stops the worker pulling. The backlog then waits in the queue — visible, counted
+by `/health`, spending no delivery attempts — and consumption resumes through a single
+probe message rather than a full batch, because eight consumers probing with ten messages
+each would burn eighty deliveries to answer a question one message answers.
+
+**This is not the retry logic §4 keeps out of the worker**, and the distinction is the
+whole design. Nothing is caught in order to be tried again: a failed write still reaches no
+`delete`, the message still returns on the queue's timetable, and the queue still owns the
+counter and the dead-letter decision. What changed is only how much work the consumer
+accepts while the sinks are refusing it. Retry is the queue's; admission is the consumer's.
+
+The pause doubles from 5 seconds and is capped at the visibility timeout — a ceiling that
+is derived rather than chosen. Probing more often than that cannot help, since a message
+that failed is not visible again any sooner; probing less often only delays recovery,
+because the pause is also how long the worker sleeps after the outage has ended.
+
+One case is irreducible and worth naming: a queue holding a single event gives no evidence
+that the failure is not the event's own fault, so it still walks its own backoff to the
+dead-letter. That is correct — with one message there is genuinely nothing to compare it
+against — and it is also unchanged, because the circuit's pause is never shorter than the
+backoff the queue already imposes.
+
+Measured against the running stack, with MongoDB refused at the adapter boundary:
+
+```
+t+3s   queue 30 waiting / 10 in flight   worker paused, probing in 2s    failed 10
+t+6s   queue 29 waiting / 11 in flight   worker paused, probing in 6s    failed 11
+t+10s  queue 28 waiting / 12 in flight   worker paused, probing in 16s   failed 12
+fault cleared -> 52 processed, dead-letter 0, queue empty
+```
+
+Twelve failed attempts across a whole outage, not forty: one probe per cycle instead of the
+entire backlog. And the regression test was watched failing without the circuit — ten
+events, ten dead-lettered — because a regression test nobody has seen fail is a test of
+nothing.
+
+What remains is the log as the durable record: every dead-lettered event is still written
+whole at ERROR, which is the only durability an in-process queue can offer.
 
 ### If the worker crashes mid-batch
 

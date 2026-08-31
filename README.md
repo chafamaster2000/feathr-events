@@ -255,8 +255,15 @@ worker outpaces ingestion; growing means the worker is the bottleneck.
 {"status": "ok",
  "dependencies": {"mongodb": "up", "redis": "up", "elasticsearch": "up"},
  "queue": {"visible": 0, "in_flight": 0, "dlq": 0, "capacity": 10000},
- "worker": {"processed": 201, "failed_attempts": 0, "consumers": 8}}
+ "worker": {"processed": 201, "failed_attempts": 0, "consumers": 8,
+            "paused": false, "resumes_in": 0.0}}
 ```
+
+`paused` is the worker having stopped pulling because the stores are not answering — see
+[ARCHITECTURE §6](./ARCHITECTURE.md#the-dead-letter-queue-used-to-have-false-positives).
+A paused worker and an idle one both report zero throughput and only one of them is a
+problem, so it is reported rather than inferred, and the console shows it as a pill beside
+the queue depth.
 
 ---
 
