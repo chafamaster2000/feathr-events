@@ -115,7 +115,7 @@ export default function SearchBar({
           onChange={(e) => onType(e.target.value)}
           onFocus={onFocus}
           onKeyDown={keys}
-          placeholder="Search event metadata — typos are fine"
+          placeholder="Search event metadata (typos are fine)"
           aria-label="search event metadata"
           role="combobox"
           aria-expanded={open}

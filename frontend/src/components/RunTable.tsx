@@ -114,9 +114,10 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
       </div>
 
       <p className="note wide">
-        <strong>Accepted</strong> is the client&rsquo;s number, <strong>total</strong> is
-        the worker&rsquo;s. The gap between them is the asynchrony — why ingestion answers{' '}
-        <code>202</code> instead of waiting for the writes. Kept in this browser only.
+        <strong>Accepted</strong> is the client&rsquo;s number and <strong>total</strong>{' '}
+        is the worker&rsquo;s. The gap between them is the asynchrony: it is why ingestion
+        answers <code>202</code> instead of waiting for the writes. Kept in this browser
+        only.
       </p>
     </motion.div>
   )

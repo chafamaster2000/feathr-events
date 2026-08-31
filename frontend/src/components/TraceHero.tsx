@@ -57,8 +57,8 @@ export default function TraceHero({
             Follow one event <span className="mark">through the pipeline</span>
           </h1>
           <p className="hero-sub">
-            Ingest an event and watch it reach MongoDB, then become searchable — with the
-            real milliseconds between each hop.
+            Send an event and watch it reach MongoDB, then become searchable. Every
+            timing below is measured.
           </p>
         </div>
 
@@ -97,8 +97,8 @@ export default function TraceHero({
       <div className="trail" data-empty={steps.length === 0}>
         {steps.length === 0 && !running && (
           <p className="note" style={{ margin: 0 }}>
-            Nothing traced yet. The first hop is instant; the last one usually lands about a
-            second later, because Elasticsearch refreshes once per second.
+            Nothing traced yet. The first hop is instant. The last one usually lands about
+            a second later, because Elasticsearch refreshes once per second.
           </p>
         )}
 

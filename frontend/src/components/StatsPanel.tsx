@@ -46,7 +46,7 @@ function Chart({ stats, computedAt }: { stats: Stats | null; computedAt: number 
   }, [stats])
 
   if (columns.length === 0) {
-    return <p className="banner">No events in this window yet — send a burst.</p>
+    return <p className="banner">No events in this window yet. Send a burst.</p>
   }
 
   const W = 720
@@ -269,8 +269,8 @@ export default function StatsPanel({
           <Chart stats={query} computedAt={computedAt} />
           <p className="note">
             A MongoDB aggregation. <code>$dateTrunc</code> buckets inside the database, so
-            documents never cross the network just to be counted. A snapshot, not a feed —
-            it refetches when you change the bucket, when you ingest, or when you ask.
+            documents never cross the network just to be counted. It is a snapshot: it
+            refetches when you change the bucket, when you ingest, or when you ask.
           </p>
         </div>
 
@@ -291,9 +291,9 @@ export default function StatsPanel({
             )}
           </div>
           <p className="note">
-            Arrivals placed by their own timestamp — the one stamped at the HTTP edge,
-            before the queue — in two-second bins. Every bin shown is closed, so the cached
-            answer is exact for its window rather than a snapshot of a bucket still moving.
+            Arrivals in two-second bins, placed by each event's own timestamp, stamped at
+            the HTTP edge before the queue. Every bin shown has closed, so the cached answer
+            is exact for the window it covers.
           </p>
         </div>
       </div>

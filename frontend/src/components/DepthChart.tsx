@@ -142,17 +142,16 @@ export default function DepthChart({
 
       <div className="row" style={{ marginTop: 6 }}>
         <span className="pill" style={{ borderColor: 'var(--inflight)' }}>
-          backlog — waiting + in flight
+          backlog: waiting + in flight
         </span>
         <span className="pill" style={{ borderColor: 'var(--visible)' }}>
-          throughput — events completed per second
+          throughput: events completed per second
         </span>
       </div>
 
       <p className="note">
-        A flat backlog is the healthy case: it means the worker keeps up. What matters is
-        the shape after a burst — it should rise and come back down. A line that climbs and
-        stays up says the worker is the bottleneck.
+        A flat backlog means the worker keeps up. After a burst the line should rise and
+        come back down. If it climbs and stays up, the worker is the bottleneck.
       </p>
     </>
   )

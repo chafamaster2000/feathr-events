@@ -134,20 +134,20 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           detail:
             peak > 0
               ? `${peak} waiting at the deepest point sampled`
-              : 'never seen backed up — the worker kept pace with the sender',
+              : 'never seen backed up. The worker kept pace with the sender',
           atMs: peakAt,
           state: 'done' as const,
         },
         drainMs !== null
           ? {
               label: 'In MongoDB',
-              detail: `the queue is empty — all ${accepted} written · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
+              detail: `the queue is empty, all ${accepted} written · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
               atMs: drainMs,
               state: 'done' as const,
             }
           : {
               label: 'In MongoDB',
-              detail: 'gave up waiting — the queue still had events in it when the timer ran out',
+              detail: 'gave up waiting. The queue still had events in it when the timer ran out',
               atMs: DRAIN_TIMEOUT_MS,
               state: 'failed' as const,
             },
@@ -180,13 +180,13 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           searchableMs !== null
             ? {
                 label: 'Searchable',
-                detail: `all ${accepted} findable in Elasticsearch — indexed earlier, visible now, because refresh_interval is 1s`,
+                detail: `all ${accepted} findable in Elasticsearch. Indexed earlier, visible now, because refresh_interval is 1s`,
                 atMs: searchableMs,
                 state: 'done' as const,
               }
             : {
                 label: 'Searchable',
-                detail: 'gave up waiting — not all of them were findable within the timeout',
+                detail: 'gave up waiting. Not all of them were findable within the timeout',
                 atMs: SEARCHABLE_TIMEOUT_MS,
                 state: 'failed' as const,
               },
@@ -198,7 +198,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           drainMs !== null
             ? `${drainMs >= 1000 ? `${(drainMs / 1000).toFixed(1)}s` : `${drainMs}ms`} end to end`
             : 'still writing',
-          refused ? `${refused} refused (429 — queue full)` : null,
+          refused ? `${refused} refused (429, queue full)` : null,
           failed ? `${failed} failed (connection or server error)` : null,
         ]
           .filter(Boolean)
@@ -217,7 +217,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
       setLast('every store emptied, and the worker counters with them')
       setSteps([])
     } catch {
-      setLast('reset unavailable — the API is not running with DEMO_MODE')
+      setLast('reset unavailable: the API is not running with DEMO_MODE')
     }
     setBusy(null)
     onDone?.()

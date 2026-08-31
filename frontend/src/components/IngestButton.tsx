@@ -56,7 +56,7 @@ export default function IngestButton({
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`how many events to send — currently ${amount}`}
+        aria-label={`how many events to send, currently ${amount}`}
         onClick={() => setOpen((o) => !o)}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">

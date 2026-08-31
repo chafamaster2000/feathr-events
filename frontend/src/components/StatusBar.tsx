@@ -44,7 +44,7 @@ export default function StatusBar({
                 exit={{ opacity: 0, scale: 0.94 }}
                 transition={{ duration: 0.2 }}
                 style={hit ? { borderColor: 'var(--cyan)', color: 'var(--navy)' } : undefined}
-                title="from /events/stats/realtime — the one read that goes through Redis"
+                title="from /events/stats/realtime, the one read that goes through Redis"
               >
                 {hit
                   ? `cache hit · ${Math.round((cacheAgeMs ?? 0) / 1000)}s old`
@@ -73,8 +73,8 @@ export default function StatusBar({
       </div>
       <p className="note">
         Four containers, one application process. The API, the queue and the worker share
-        it — the queue is a variable in that process's memory, not a service. Redis holds
-        one thing: the answer to the only read whose contract promises a summary.
+        it. The queue is a variable in that process's memory, not a service. Redis caches
+        one endpoint, the live summary.
       </p>
 
       <DepthChart history={history} queue={health?.queue as QueueStats | undefined} />

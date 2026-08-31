@@ -55,7 +55,7 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
       <div className="legend" style={{ marginBottom: 10 }}>
         {series.length === 0 ? (
           <span style={{ color: 'var(--muted)' }}>
-            nothing in the last {Math.round(window_seconds / 60)} minutes — send a burst
+            nothing in the last {Math.round(window_seconds / 60)} minutes. Send a burst
           </span>
         ) : (
           series.map((s, i) => (

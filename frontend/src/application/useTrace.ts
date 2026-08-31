@@ -82,7 +82,7 @@ export function useTrace(onRun?: (run: Omit<Run, 'at'>) => void) {
           ? {
               label: 'In MongoDB',
               detail:
-                'mostly spent waiting to be picked up — idle worker tasks poll every 50ms, ' +
+                'mostly spent waiting to be picked up. Idle worker tasks poll every 50ms, ' +
                 'a fixed cost that disappears once there is a queue to work through',
               atMs: inMongo.atMs,
               state: 'done',
@@ -107,7 +107,7 @@ export function useTrace(onRun?: (run: Omit<Run, 'at'>) => void) {
         inES
           ? {
               label: 'Searchable',
-              detail: "indexed earlier; visible now — Elasticsearch's refresh_interval is 1s",
+              detail: "indexed earlier, visible now. Elasticsearch's refresh_interval is 1s",
               atMs: inES.atMs,
               state: 'done',
             }

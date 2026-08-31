@@ -36,7 +36,7 @@ export default function SearchResults({
               of signup events headed "signip" names the single string that appears
               nowhere in it. */}
           <strong>{corrected ?? query}</strong>
-          {corrected && <span className="corrected"> — you typed “{query}”</span>}
+          {corrected && <span className="corrected"> (you typed "{query}")</span>}
           {items.length < (total ?? 0) ? ` · showing ${items.length}` : ''}
         </p>
       )}
@@ -84,8 +84,8 @@ export default function SearchResults({
 
       <p className="note">
         <code>metadata</code> is mapped <code>flattened</code>, so matching inside it is
-        term-level rather than analysed. That is the price of accepting unpredictable keys
-        without letting the mapping explode.
+        term-level rather than analysed. That is what it costs to accept unpredictable keys
+        without the mapping exploding.
       </p>
     </div>
   )
