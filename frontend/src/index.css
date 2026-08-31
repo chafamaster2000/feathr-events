@@ -170,8 +170,12 @@ tr:last-child td { border-bottom: none; }
   padding: 2px 9px; }
 
 /* ---- masthead search, where their own nav puts it ---- */
-.searchbar { display: flex; gap: 9px; margin-left: auto; flex: 1 1 340px; max-width: 460px; }
-.searchbar input { flex: 1; }
+/* The wrapper owns the width; the form just fills it. Two elements sizing themselves
+   with their own max-width left the form narrower than its own container and pushed to
+   one side of it, which is what put the panel out of line with the input. */
+.searchbar { display: flex; gap: 9px; }
+.searchfield { position: relative; flex: 1; min-width: 0; }
+.searchfield input { width: 100%; }
 
 /* ---- the primary action ---- */
 .hero { padding: 28px 30px 26px; }
@@ -223,7 +227,7 @@ tr:last-child td { border-bottom: none; }
 /* The panel floats: `position: absolute` so opening it cannot change the height of the
    header. The suggestions used to sit inline under the input, which meant the masthead
    grew a row the moment the data loaded and shoved the whole page down. */
-.searchwrap { margin-left: auto; flex: 1 1 380px; max-width: 520px; position: relative; }
+.searchwrap { margin-left: auto; flex: 1 1 380px; max-width: 520px; }
 
 .combo { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px;

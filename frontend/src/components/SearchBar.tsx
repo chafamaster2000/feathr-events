@@ -105,6 +105,10 @@ export default function SearchBar({
           onCommit(options[highlight]?.value ?? query)
         }}
       >
+        {/* The panel hangs off the field, not off the whole control. Anchored to the
+            wrapper it spanned the submit button too, and stood 60px left and 98px right
+            of the box it belongs to. */}
+        <div className="searchfield">
         <input
           type="text"
           value={query}
@@ -119,12 +123,7 @@ export default function SearchBar({
           aria-autocomplete="list"
           aria-activedescendant={open && options[highlight] ? `opt-${highlight}` : undefined}
         />
-        <button type="submit" disabled={busy}>
-          {busy ? '…' : 'Search'}
-        </button>
-      </form>
-
-      <AnimatePresence>
+        <AnimatePresence>
         {open && (
           <motion.div
             className="combo"
@@ -163,6 +162,7 @@ export default function SearchBar({
               options.map((o, i) => (
                 <button
                   key={o.value}
+                  type="button"
                   id={`opt-${i}`}
                   role="option"
                   aria-selected={i === highlight}
@@ -186,7 +186,13 @@ export default function SearchBar({
               ))}
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+        </div>
+
+        <button type="submit" disabled={busy}>
+          {busy ? '…' : 'Search'}
+        </button>
+      </form>
     </div>
   )
 }
