@@ -109,6 +109,7 @@ export default function TraceHero({
               className={`hop ${step.state}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, delay: i * 0.04 }}
             >
               <div className="hop-dot" aria-hidden="true" />
@@ -120,15 +121,26 @@ export default function TraceHero({
         </AnimatePresence>
       </div>
 
-      {eventId && (
-        <div className="kv" style={{ marginTop: 14 }}>
-          <span>event_id {eventId}</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {eventId && (
+          <motion.div
+            className="kv"
+            style={{ marginTop: 14 }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22 }}
+          >
+            <span>event_id {eventId}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Last, because it is the record rather than the event: the reader watches the
           drawing, then reads the hops, then compares this run against the ones before. */}
-      <RunTable runs={runs} onClear={onClearRuns} />
+      <AnimatePresence>
+        {runs.length > 0 && <RunTable key="runs" runs={runs} onClear={onClearRuns} />}
+      </AnimatePresence>
     </div>
   )
 }

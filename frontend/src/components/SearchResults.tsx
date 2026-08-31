@@ -38,6 +38,12 @@ export default function SearchResults({
           <strong>{corrected ?? query}</strong>
           {corrected && <span className="corrected"> (you typed "{query}")</span>}
           {items.length < (total ?? 0) ? ` · showing ${items.length}` : ''}
+          {/* One score, not a column of the same number. BM25 scores the query against the
+              corpus, so every document matching the same term the same way gets the same
+              value: 25 identical cells encoded nothing. It is worth showing once, because
+              it drops sharply when only the fuzzy clause matched — an exact "signup" scores
+              9.81 where the typo "signip" scores 1.36. */}
+          {items[0]?.score !== undefined && ` · score ${items[0].score.toFixed(2)}`}
         </p>
       )}
 
@@ -48,7 +54,6 @@ export default function SearchResults({
               <th>type</th>
               <th>user</th>
               <th>metadata</th>
-              <th>score</th>
             </tr>
           </thead>
           <tbody>
@@ -74,7 +79,6 @@ export default function SearchResults({
                         ))}
                     </div>
                   </td>
-                  <td className="mono">{e.score?.toFixed(2) ?? '—'}</td>
                 </motion.tr>
               ))}
             </AnimatePresence>

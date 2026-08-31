@@ -30,7 +30,13 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
   const drainedEvents = drained.reduce((sum, r) => sum + r.accepted, 0)
 
   return (
-    <motion.div className="runs" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.div
+      className="runs"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.24 }}
+    >
       <div className="runs-head">
         <h2>Measured runs</h2>
         <span className="legend">
@@ -67,7 +73,13 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
           <tbody>
             <AnimatePresence initial={false}>
               {runs.map((r) => (
-                <motion.tr key={r.at} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <motion.tr
+                  key={r.at}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  transition={{ duration: 0.2 }}
+                >
                   <td className="mono sub">{clock(r.at)}</td>
                   <td className="mono">{r.n}</td>
                   <td className="num">{ms(r.acceptMs)}</td>
