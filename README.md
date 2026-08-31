@@ -161,6 +161,65 @@ worker outpaces ingestion; growing means the worker is the bottleneck.
 
 ---
 
+## The console
+
+`make up` also starts an operational console at <http://localhost:5173>.
+
+**On why a backend submission ships a browser page.** The brief awards no points for
+frontend development, and this is not one: there is no product UI here, no user-facing
+feature, no styling exercise. It is an **observability surface** — the same role the
+architecture document's diagram plays, except it can be run. Every claim in
+`ARCHITECTURE.md` about the pipeline's behaviour is invisible from the outside: the queue
+lives in process memory, the dual write happens between two containers, the cache is stale
+by design. The console makes those three things watchable, and nothing else.
+
+It reads the **same five endpoints any client has**. There is no debug endpoint behind it,
+because "the harness is never an endpoint" is an invariant this system keeps
+(`CLAUDE.md`). The event trace is assembled from outside — ingest, then poll the two read
+paths until the event shows up in each — which is why the timings it reports are real.
+
+| Panel | Shows | Reads |
+|---|---|---|
+| Queue depth | The in-memory queue filling and draining. Send a burst and watch it absorb | `GET /health` |
+| Trace one event | Accepted → in MongoDB → searchable, with real milliseconds | `POST /events`, then `GET /events` and `GET /events/search` |
+| Search | Full-text over `metadata` in Elasticsearch | `GET /events/search` |
+| Cache | `/events/stats` and `/events/stats/realtime` side by side, and the drift between them | both stats endpoints |
+
+The gap the trace shows before "searchable" is Elasticsearch's one-second
+`refresh_interval`, not latency in the worker. The drift the cache panel shows is the TTL
+doing its job.
+
+**One backend change was needed and it is the only one:** `POST /demo/reset` empties the
+stores so a demonstration can restart. It is registered **only** when the API runs with
+`DEMO_MODE` enabled — not disabled behind a check, absent. A destructive endpoint that
+merely tests a flag is one configuration mistake away from being live.
+
+Architecture follows the layer split the console's own stack conventions ask for:
+`domain/` (models, no React), `infrastructure/` (the HTTP client), `application/` (use
+cases), `components/`, `pages/`. The browser only ever talks to the Vite dev server, which
+proxies `/api` to FastAPI — which is why the backend needs no CORS configuration.
+
+## Seeding and recovery
+
+```bash
+python3 scripts/seed.py --count 2000 --days 7    # realistic events, through the API
+python3 scripts/reindex.py --recreate            # rebuild Elasticsearch from MongoDB
+```
+
+`seed.py` writes with `POST /events` rather than straight into the stores. Writing
+directly would be faster and would prove nothing — it would skip the queue, the worker and
+the idempotent upsert. Two properties of the generated data are deliberate: timestamps are
+**back-dated across several days**, so the time buckets in `/events/stats` have shape; and
+metadata keys **differ per event type** (a conversion has `amount`, a signup has `plan`),
+which is exactly the shape that makes a dynamic Elasticsearch mapping explode and the
+reason `metadata` is mapped `flattened`.
+
+`reindex.py` is the recovery path for the failure `ARCHITECTURE.md` spends most time on.
+The document claims Elasticsearch is derived and rebuildable; this is what makes that
+claim testable. Dropping the index and rebuilding 2,204 documents from MongoDB takes about
+ten seconds. There is deliberately no reverse direction — rebuilding MongoDB from
+Elasticsearch would make the derived index authoritative, and then neither store is.
+
 ## Testing
 
 ```bash

@@ -484,6 +484,31 @@ Queue depth, exposed on `/health`:
 
 ---
 
+## 7b. Observability
+
+Three surfaces, each for a different reader.
+
+**`GET /health`** — for an orchestrator, and the one number that matters: queue depth.
+Stable near zero means the worker outpaces ingestion; growing means it does not. It also
+reports `processed`/`failed` counters and dependency status, and returns `503` when any
+dependency is down so traffic stops being routed before a load balancer notices.
+
+**Structured NDJSON** under `.logs/agent/<date>/<task-id>.log`, one line per request with
+`{ts, level, scope, taskId, msg, ctx}`. Correlation works on two levels: the transport id
+from `x-agent-task-id`, and the domain's own `event_id` recorded in context — the latter
+being the one that survives every hop, from the API through the queue and the worker into
+both stores.
+
+The logging path **cannot fail a request**. `_logger_for` returns `None` and warns once
+when the sink is unwritable, and the middleware carries on. This is not defensive
+programming for its own sake: the first time the sink was wired onto a bind mount with a
+uid mismatch, every response became a `500`. Observability that can take the system down
+is worse than none, and the same principle already governs the cache.
+
+**A console** at `:5173`, described in the README. It consumes only the five public
+endpoints — deliberately, because a debug endpoint that exposes queue internals is exactly
+what §6's failure analysis says must not exist.
+
 ## 8. What I would do differently
 
 **Eliminate the dual write with change data capture.** The strongest available answer to
