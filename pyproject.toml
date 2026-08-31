@@ -2,9 +2,9 @@
 name = "feathr-events"
 version = "0.1.0"
 description = "Distributed Event Processing Platform - Feathr take-home"
-# Acotado por arriba a proposito: el Dockerfile corre 3.13-slim, y sin el techo uv
-# resuelve al 3.14 del sistema. Tests pasando en un interprete distinto al de
-# produccion es una trampa silenciosa. Ver .python-version.
+# Bounded above on purpose: the Dockerfile runs 3.13-slim, and without the ceiling uv
+# resolves to the system's 3.14. Tests passing on a different interpreter from the one in
+# production is a silent trap. See .python-version.
 requires-python = ">=3.13,<3.14"
 
 dependencies = [
@@ -30,8 +30,8 @@ dev = [
     "ruff==0.16.4",
 ]
 
-# Sin [build-system] a proposito: esto es una app, no una libreria.
-# uv lo trata como proyecto virtual y no intenta construir un wheel.
+# No [build-system] on purpose: this is an application, not a library. uv treats it as a
+# virtual project and does not try to build a wheel.
 [tool.uv]
 package = false
 
@@ -42,9 +42,9 @@ target-version = "py313"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# La raiz del repo en sys.path: `app` es un paquete del proyecto, no una lib instalada
-# (tool.uv.package = false, asi que no hay wheel que lo ponga ahi).
+# The repo root on sys.path: `app` is a package of this project, not an installed
+# library (tool.uv.package = false, so no wheel puts it there).
 pythonpath = ["."]
 markers = [
-    "integration: corre contra el stack real de docker compose (make up). Se saltea si no esta arriba.",
+    "integration: runs against the real docker compose stack (make up). Skipped when it is not up.",
 ]

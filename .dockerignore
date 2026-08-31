@@ -11,10 +11,10 @@ tests
 .env
 *.md
 
-# Herramental de desarrollo: NUNCA va a la imagen.
-# El harness lee documentos y logs sin autenticacion — es seguro porque
-# solo corre en la maquina de un dev, contra un stack de dev. Si entra al
-# contenedor, deja de serlo. Ver docs/DECISIONS.md (D-013).
+# Development tooling: NEVER goes into the image.
+# The harness reads documents and logs without authentication. That is safe because it
+# only runs on a developer machine, against a developer stack. Inside the container it
+# would stop being safe. See ARCHITECTURE.md §6.
 scripts/
 harness/
 .logs/

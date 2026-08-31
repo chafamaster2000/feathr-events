@@ -2,7 +2,7 @@
 
 FROM python:3.13-slim-bookworm
 
-# uv desde su imagen oficial, con version pinneada (nunca :latest en un build).
+# uv from its official image, pinned (never :latest in a build).
 COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -12,25 +12,25 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# curl: lo usa el healthcheck del contenedor.
+# curl: used by the container healthcheck.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
 
-# --- Capa 1: dependencias ---
-# Se invalida SOLO si cambian pyproject.toml o uv.lock. El cache mount hace que
-# reinstalar sea casi instantaneo aun cuando se invalida.
+# --- Layer 1: dependencies ---
+# Invalidated ONLY when pyproject.toml or uv.lock change. The cache mount makes
+# reinstalling nearly instant even when it is.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# --- Capa 2: codigo ---
-# Cambia en cada edicion, pero no vuelve a instalar dependencias.
+# --- Layer 2: source ---
+# Changes on every edit, but does not reinstall dependencies.
 COPY app ./app
 
-# Nunca root.
+# Never root.
 RUN useradd --system --create-home --uid 10001 app && chown -R app:app /srv
 USER app
 

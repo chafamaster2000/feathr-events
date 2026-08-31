@@ -11,13 +11,13 @@ htmlcov/
 # Entorno local
 .env
 
-# Logs del harness (efímeros, se regeneran)
+# Harness logs (ephemeral, regenerated)
 .logs/
 
 # Tracker local de /wayfinder
 .scratch/
 
-# Estado por-máquina de Claude Code (las skills y agentes SÍ se commitean)
+# Per-machine Claude Code state (skills and agents ARE committed)
 .claude/settings.local.json
 
 # Claude Code tooling — stays out of the submission.

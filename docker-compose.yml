@@ -2,14 +2,14 @@ name: feathr-events
 
 services:
   # --------------------------------------------------------------------------
-  # Store primario. Fuente de verdad de los eventos.
+  # Primary store. The source of truth for events.
   # --------------------------------------------------------------------------
   mongo:
     image: mongo:8.0
     restart: unless-stopped
-    # Kernel 6.19-7.0.13 rompe el tcmalloc que trae mongo 8.0+ (SERVER-121912):
-    # viola el ABI de rseq y el proceso muere al arrancar. Este tunable lo evita.
-    # Se saca cuando el host pase a kernel 7.0.14+.
+    # Kernels 6.19-7.0.13 break the tcmalloc that ships with mongo 8.0+ (SERVER-121912):
+    # it violates the rseq ABI and the process dies on startup. This tunable avoids it.
+    # Remove it once the host is on kernel 7.0.14+.
     environment:
       GLIBC_TUNABLES: glibc.pthread.rseq=1
     ports:
@@ -24,16 +24,16 @@ services:
       start_period: 20s
 
   # --------------------------------------------------------------------------
-  # Indice derivado para full-text search. Reconstruible desde Mongo.
+  # Derived index for full-text search. Rebuildable from MongoDB.
   # --------------------------------------------------------------------------
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
     restart: unless-stopped
     environment:
-      # Un solo nodo: sin quorum, sin replicas. Solo para desarrollo local.
+      # A single node: no quorum, no replicas. Local development only.
       discovery.type: single-node
-      # 9.x arranca con TLS + password obligatorios. Los desactivamos para local
-      # y lo documentamos como decision de dev, NO como default de produccion.
+      # 9.x starts with TLS and a password required. Both are disabled here for local
+      # use, recorded as a development decision and NOT as a production default.
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: "-Xms${ES_HEAP:-512m} -Xmx${ES_HEAP:-512m}"
     ports:
@@ -41,8 +41,8 @@ services:
     volumes:
       - es-data:/usr/share/elasticsearch/data
     healthcheck:
-      # wait_for_status=yellow: con un solo nodo las replicas nunca se asignan,
-      # asi que el cluster jamas llega a "green". Esperar green = colgarse.
+      # wait_for_status=yellow: with one node the replicas are never assigned, so the
+      # cluster never reaches "green". Waiting for green would hang forever.
       test:
         - CMD-SHELL
         - curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null
@@ -52,13 +52,13 @@ services:
       start_period: 45s
 
   # --------------------------------------------------------------------------
-  # Cache. Guarda respuestas calculadas, nunca datos que no se puedan perder.
+  # Cache. It holds computed answers, never data that cannot be lost.
   # --------------------------------------------------------------------------
   redis:
     image: redis:8.2-alpine
     restart: unless-stopped
-    # Persistencia apagada a proposito: si es un cache, sobrevivir a un reinicio
-    # no es un requisito. Menos I/O y menos latencia en el p99.
+    # Persistence off on purpose: for a cache, surviving a restart is not a
+    # requirement. Less I/O, and a lower p99.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -69,15 +69,14 @@ services:
       retries: 10
 
   # --------------------------------------------------------------------------
-  # API. Por ahora solo /health.
+  # API. Ingestion and the read paths.
   # --------------------------------------------------------------------------
   api:
     build:
       context: .
     restart: unless-stopped
     environment:
-      # Nombres de servicio de compose, no localhost: cada contenedor tiene su
-      # propio loopback.
+      # Compose service names, not localhost: every container has its own loopback.
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: feathr
       ELASTICSEARCH_URL: http://elasticsearch:9200
@@ -87,7 +86,7 @@ services:
       DEMO_MODE: ${DEMO_MODE:-false}
     ports:
       - "${API_PORT:-8000}:8000"
-    # Hot reload en desarrollo. Se saca para produccion.
+    # Hot reload for development. Removed for production.
     volumes:
       - ./app:/srv/app:ro
       # Structured NDJSON has to reach the host, or read-hidden-logs cannot glob it.
@@ -106,8 +105,8 @@ services:
       - --timeout-keep-alive=65
       - --reload
     depends_on:
-      # Sin esto la API arranca antes que ES este listo y parece un bug de
-      # conexion cuando en realidad es una carrera de arranque.
+      # Without this the API starts before Elasticsearch is ready, and it looks like a
+      # connection bug when it is really a startup race.
       mongo:
         condition: service_healthy
       elasticsearch:
