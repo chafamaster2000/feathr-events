@@ -35,6 +35,10 @@ services:
       # 9.x starts with TLS and a password required. Both are disabled here for local
       # use, recorded as a development decision and NOT as a production default.
       xpack.security.enabled: "false"
+      # The heap is capped; the container is not. No `mem_limit` anywhere in this file
+      # is deliberate for local development - the JVM off-heap (and every other
+      # service) borrows freely from the host. In production each service gets a
+      # memory limit sized to its role, ES first: its off-heap grows past the heap cap.
       ES_JAVA_OPTS: "-Xms${ES_HEAP:-512m} -Xmx${ES_HEAP:-512m}"
     ports:
       - "${ES_PORT:-9200}:9200"
@@ -115,13 +119,15 @@ services:
         condition: service_healthy
     healthcheck:
       # No `-f`. A container healthcheck asks one question: is this process alive and
-      # serving? `/health` answers a different one - it returns 503 when any dependency
-      # is down, which is the right readiness signal for a load balancer and the wrong
-      # trigger for a restart. With `-f`, a Redis blip marked this container unhealthy,
-      # and under anything that acts on that (a Kubernetes liveness probe, ECS, autoheal)
-      # the process would be restarted. This process owns the only copy of the queue, so
-      # a wrong restart is not an inconvenience, it is data loss - and Redis is the one
-      # dependency ingestion never touches. Alive is the question; ready is /health's.
+      # serving? /health answers with a 200 even when degraded - dependency status lives
+      # in the body, where nothing restarts a container over it (see the endpoint's
+      # docstring; it used to answer 503, and that was corrected). So today `-f` would
+      # change nothing, and it stays off so this check keeps asking only "alive?" even
+      # if /health ever grows a failure status again. The history is the warning: while
+      # it answered 503, `-f` marked this container unhealthy on a Redis blip, and under
+      # anything that acts on that (a Kubernetes liveness probe, ECS, autoheal) the
+      # process gets restarted. This process owns the only copy of the queue, so a wrong
+      # restart is not an inconvenience, it is data loss.
       test: ["CMD-SHELL", "curl -sS -o /dev/null http://localhost:8000/health"]
       interval: 15s
       timeout: 5s

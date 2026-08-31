@@ -48,4 +48,7 @@ RUN useradd --system --uid 10001 app && chown -R app:app /srv
 USER app
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# `--timeout-keep-alive=65` here and not only in compose: the flag outlives the console
+# proxy's connection idle window (see docker-compose.yml), and an image that only works
+# under one particular compose file is a trap for whoever runs it anywhere else.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive=65"]
