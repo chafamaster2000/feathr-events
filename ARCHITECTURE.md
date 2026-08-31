@@ -645,6 +645,75 @@ across two thousand requests, where before the same load exhausted them.
 The instrumentation added to find problems was the problem. That is worth stating plainly
 in a document about failure modes.
 
+### The log harness
+
+Four containers log in four dialects, and none of them agree:
+
+| Service | Format | Where the level lives |
+|---|---|---|
+| `mongo` | JSON | `s`, one letter: `F E W I D` |
+| `elasticsearch` | ECS JSON | `log.level`, a word |
+| `redis` | plain text | one character: `#` warn, `*` notice, `-` verbose, `.` debug |
+| `api` | two at once | uvicorn's `INFO:  …` and Python `logging` |
+
+Reviewing an incident by hand means reading four grammars and correlating timestamps at
+three different precisions. `scripts/logcheck.py` normalises them into one record and one
+clock:
+
+```mermaid
+flowchart LR
+  M["mongo<br/>JSON, level in s"] --> P
+  E["elasticsearch<br/>ECS JSON"] --> P
+  R["redis<br/>one character"] --> P
+  A["api<br/>uvicorn + logging"] --> P
+  P["docker compose logs --since"] --> N["normalise to<br/>ts, service, level, msg, src, raw"]
+  N -->|recognised| L["rank the level"]
+  N -->|no parser matched| U["UNKNOWN<br/>kept, never dropped"]
+  U --> L
+  L --> F{"at or above<br/>the threshold?"}
+  F -->|no| X["not shown"]
+  F -->|yes| O["one stream, sorted by time"]
+  O --> V{"anything at ERROR?"}
+  V -->|yes| E1["exit 1"]
+  V -->|no| E0["exit 0"]
+```
+
+Two decisions in there are the whole value of the thing.
+
+**`UNKNOWN` ranks above `WARN`.** A line no parser recognised cannot be declared harmless,
+and a Python traceback lands exactly there — its first line matches nothing. Ranking it
+below `WARN` would hide the only class of output that is guaranteed to be interesting.
+This is not hypothetical: it is how a MongoDB index-creation conflict surfaced after an
+index was renamed, in a run where every other line was clean.
+
+**Nothing is discarded.** An unparseable line is kept with its raw text rather than
+dropped, because discarding what you do not understand is how a harness lies to you.
+
+The exit code makes it usable as a gate rather than only as a reader: non-zero when
+anything reached `ERROR`.
+
+### The closing gate
+
+Three commands, each answering a different question, and none of them substitutes for
+another. `CLAUDE.md` states them as the condition for calling any change to ingestion
+done:
+
+```mermaid
+flowchart TD
+  C["a change that touches ingestion"] --> H["make health"]
+  H -->|"are the three dependencies up,<br/>and how deep is the queue?"| T["uv run pytest -q"]
+  T -->|"does the logic still hold<br/>without a stack at all?"| G["scripts/logcheck.py --level WARN"]
+  G -->|"did any container complain<br/>while that was happening?"| Q{"clean?"}
+  Q -->|no| C
+  Q -->|yes| D["done"]
+```
+
+The third is the one that is easy to skip and the one that pays. Tests assert what they
+were written to assert; the harness reports what the system said while nobody was asking.
+Both of the observability bugs described above — the permission failure that turned every
+response into a `500`, and the file-descriptor exhaustion — were found by reading logs, not
+by a failing test.
+
 **A console** at `:5173`, described in the README. It consumes only public
 endpoints — deliberately, because a debug endpoint that exposes queue internals is exactly
 what §6's failure analysis says must not exist. Two of them exist *because* of the

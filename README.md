@@ -405,6 +405,50 @@ Elasticsearch, the fact that `uvicorn --workers` silently creates one queue per 
 and that commutativity — not coordination — is what makes concurrency safe here. The
 brief asks none of these. A panel will.
 
+### The loop, concretely
+
+Four gates, each closing a way I have watched myself and the tool get things wrong.
+
+**Documentation before an API.** A skill blocks reading a third-party library from memory:
+the version in front of me is resolved through Context7 and cited before anything imports
+it. Training data expires, and a plausible answer about a library is indistinguishable
+from a correct one until it runs.
+
+Two facts in this repo are the kind that gate exists for, and both are recorded where the
+decision was made. The async MongoDB driver is `pymongo`, not `motor`, deprecated in May
+2026 — here the plausible answer and the correct one are different, and the dated comment
+in `pyproject.toml` is there because a date is checkable and a recollection is not. And
+`elasticsearch` needs its `[async]` extra: without it every import resolves and the
+process dies at startup on `AiohttpHttpNode`, which is the failure shape that makes
+guessing expensive.
+
+**Structured logs, wired once and read every time.** One skill installs the NDJSON sink
+per stack; another is the closing gate that refuses to call a task done until the logs for
+it have been read. That is why `app/observability.py` exists, and it is also where the
+worst bug in this project came from and was found — see `ARCHITECTURE.md` §7b.
+
+**Screenshots analysed by a separate agent.** The console is the one place where "it
+works" is a visual claim, and the main session never sees pixels: a dedicated agent takes
+the capture, judges it against stated criteria, and returns prose. It failed the contrast
+of the trace timeline twice, the second time after I had "fixed" it — the ratio had
+improved and the text was still too small and too light. I would have shipped it.
+
+**Adversarial review, at the end, by models that had not written the code.** Three
+reviewers: one checking every requirement against the running system rather than the
+source, one grading the documents the way the panel will, and one — deliberately a
+different model — trying to break the architecture. They found, among others, an endpoint
+serving in production that no document mentioned and that falsified a claim this README
+made in bold; a caching section arguing from a bin size the code had moved off; a response
+example in this file whose numbers did not add up; and a `json.loads` outside a `try` that
+made a corrupt cache value return `500` from the one endpoint whose contract says it never
+fails. Every finding was verified against the running system before I accepted it. None
+was a false positive.
+
+That last gate is the one I would keep if I could keep only one. The reviewers found
+nothing wrong with the *reasoning*: what they broke was documentation drifting away from
+code, and edges the code did not defend. Those are exactly the failures a person who has
+been staring at something for two days cannot see.
+
 ### Where I pushed back on it
 
 This is the part worth reading, because the failures were not random. They fell into
