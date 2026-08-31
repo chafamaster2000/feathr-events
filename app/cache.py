@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from datetime import date, datetime
 from typing import Any
 
 from redis.asyncio import Redis
@@ -27,6 +28,20 @@ from redis.asyncio import Redis
 log = logging.getLogger(__name__)
 
 PREFIX = "feathr:stats"
+
+
+def _encode(value: Any) -> str:
+    """Serialise the way the uncached path does.
+
+    `default=str` renders a datetime as "2026-08-25 00:00:00" while FastAPI emits
+    "2026-08-25T00:00:00", so the same endpoint answered with two different timestamp
+    formats depending on whether the response came from the cache. A client parsing
+    those would work until the first cache hit. A cache must not change the shape of
+    what it caches.
+    """
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return str(value)
 
 
 class StatsCache:
@@ -45,7 +60,7 @@ class StatsCache:
         share an entry: they are the same question.
         """
         canonical = json.dumps(
-            {k: v for k, v in sorted(params.items()) if v is not None}, default=str
+            {k: v for k, v in sorted(params.items()) if v is not None}, default=_encode
         )
         return f"{PREFIX}:{hashlib.sha256(canonical.encode()).hexdigest()[:16]}"
 
@@ -65,6 +80,6 @@ class StatsCache:
 
     async def set(self, key: str, value: dict[str, Any]) -> None:
         try:
-            await self._redis.set(key, json.dumps(value, default=str), ex=self._ttl)
+            await self._redis.set(key, json.dumps(value, default=_encode), ex=self._ttl)
         except Exception:
             log.warning("cache write failed; continuing", exc_info=True)

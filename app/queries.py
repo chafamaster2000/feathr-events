@@ -164,8 +164,20 @@ class EventQueries:
             query={
                 "bool": {
                     "should": [
-                        {"match": {"metadata": q}},
-                        {"match": {"source_url.text": q}},
+                        # Exact first, and boosted: a typo should still find the event,
+                        # but never outrank the event that actually matched.
+                        {"match": {"metadata": {"query": q, "boost": 3}}},
+                        {"match": {"source_url.text": {"query": q, "boost": 2}}},
+                        # Then the fuzzy pass. AUTO scales the allowed edit distance with
+                        # term length - no edits under 3 characters, one up to 5, two
+                        # beyond - so short terms do not match half the corpus.
+                        #
+                        # Worth knowing: this works even though `metadata` is `flattened`
+                        # and therefore indexed as keywords. Verified rather than assumed:
+                        # "firefx" returns zero hits without fuzziness and the same 14 as
+                        # "firefox" with it.
+                        {"match": {"metadata": {"query": q, "fuzziness": "AUTO"}}},
+                        {"match": {"source_url.text": {"query": q, "fuzziness": "AUTO"}}},
                     ],
                     "minimum_should_match": 1,
                 }
@@ -177,6 +189,26 @@ class EventQueries:
             "total": response["hits"]["total"]["value"],
             "items": [{"event_id": h["_id"], "score": h["_score"], **h["_source"]} for h in hits],
         }
+
+    async def search_terms(self, *, limit: int = 12) -> dict[str, Any]:
+        """The most common values that appear anywhere in `metadata`.
+
+        A search box over free-form metadata is unusable without this: nothing on screen
+        tells the reader that "webkit-nightly" is a thing this data contains. The list is
+        derived from the data rather than hard-coded, so it stays true as the data changes.
+
+        It works *because* `metadata` is `flattened`: the whole object is indexed as one
+        field whose leaves are keywords, so a terms aggregation over it returns the leaf
+        values across every key at once. On a dynamically mapped object this would need one
+        aggregation per key, and the set of keys is exactly what is unknown here.
+        """
+        response = await self._es.search(
+            index=self._index,
+            size=0,
+            aggs={"values": {"terms": {"field": "metadata", "size": limit}}},
+        )
+        buckets = response["aggregations"]["values"]["buckets"]
+        return {"terms": [{"value": b["key"], "count": b["doc_count"]} for b in buckets]}
 
     # ---- helpers ------------------------------------------------------------
 

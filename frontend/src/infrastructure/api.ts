@@ -37,6 +37,14 @@ export const api = {
       })
       .then((r) => r.data),
 
+  /** Most common metadata values, so the search box can suggest real terms. */
+  searchTerms: (limit = 10) =>
+    client
+      .get<{ terms: { value: string; count: number }[] }>('/events/search/terms', {
+        params: { limit },
+      })
+      .then((r) => r.data),
+
   stats: (bucket: Bucket = 'daily') =>
     client.get<Stats>('/events/stats', { params: { bucket } }).then((r) => r.data),
 

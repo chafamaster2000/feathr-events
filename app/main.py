@@ -192,6 +192,19 @@ async def search(
     return await request.app.state.queries.search(q=q, limit=limit)
 
 
+@app.get("/events/search/terms", tags=["query"])
+async def search_terms(
+    request: Request,
+    limit: int = Query(12, ge=1, le=50),
+) -> dict:
+    """The most common metadata values, so a search box has something to suggest.
+
+    Derived from the data with a terms aggregation rather than hard-coded, which is what
+    makes it stay honest as the data changes.
+    """
+    return await request.app.state.queries.search_terms(limit=limit)
+
+
 @app.get("/events/stats/realtime", tags=["query"])
 async def stats_realtime(
     request: Request,

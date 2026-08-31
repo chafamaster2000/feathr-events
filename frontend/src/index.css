@@ -153,3 +153,64 @@ tr:last-child td { border-bottom: none; }
 .kv span { font-family: ui-monospace, monospace; font-size: 0.78rem; color: var(--ink-2);
   background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
   padding: 2px 9px; }
+
+/* ---- masthead search, where their own nav puts it ---- */
+.searchbar { display: flex; gap: 9px; margin-left: auto; flex: 1 1 340px; max-width: 460px; }
+.searchbar input { flex: 1; }
+
+/* ---- the primary action ---- */
+.hero { padding: 28px 30px 26px; }
+.hero-head { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;
+  justify-content: space-between; }
+.hero-title { font-size: clamp(1.5rem, 3vw, 2.1rem); line-height: 1.15; margin: 0 0 8px;
+  font-weight: 700; letter-spacing: -0.025em; color: var(--navy); text-wrap: balance; }
+.hero-sub { color: var(--muted); margin: 0; max-width: 58ch; }
+.hero-cta { font-size: 1rem; padding: 12px 26px; flex: none; }
+
+.trail { display: grid; gap: 0; margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.trail[data-empty='true'] { display: block; padding: 16px 0 4px;
+  border-top: 1px solid var(--line); margin-top: 20px; }
+
+.hop { position: relative; padding: 22px 18px 4px 0; }
+/* The connecting rail: drawn per hop so it reflows with the grid instead of assuming
+   a fixed number of steps. */
+.hop::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px;
+  background: var(--line); }
+.hop:last-child::before { right: calc(100% - 12px); }
+.hop-dot { position: absolute; left: 0; top: 0; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--cyan); border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--cyan); }
+.hop.failed .hop-dot { background: var(--dead); box-shadow: 0 0 0 2px var(--dead); }
+.hop-at { font-family: ui-monospace, monospace; font-weight: 700; font-size: 1.15rem;
+  color: var(--navy); font-variant-numeric: tabular-nums; }
+.hop.failed .hop-at { color: var(--dead); }
+.hop-label { font-weight: 700; margin-top: 2px; }
+.hop-detail { color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin-top: 2px;
+  padding-right: 12px; }
+
+/* ---- tabs ---- */
+.tabs { display: flex; gap: 6px; background: var(--surface-2); padding: 4px;
+  border-radius: 999px; width: fit-content; }
+.tabs button { border: none; background: transparent; padding: 7px 18px; font-size: .9rem;
+  color: var(--muted); }
+.tabs button[aria-selected='true'] { background: var(--surface); color: var(--navy);
+  box-shadow: 0 1px 3px rgba(25, 38, 60, .1); }
+.tabs button:hover:not([aria-selected='true']) { background: transparent; color: var(--navy); }
+
+.tabbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  justify-content: space-between; margin-bottom: 18px; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: .8rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* ---- masthead search + suggestions ---- */
+.searchwrap { margin-left: auto; flex: 1 1 380px; max-width: 520px; }
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 9px; }
+.suggest-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted); font-weight: 700; margin-right: 2px; }
+.chip { padding: 3px 11px; font-size: .8rem; font-weight: 500; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; }
+.chip em { font-style: normal; font-family: ui-monospace, monospace; font-size: .72rem;
+  color: var(--muted); }
+.chip:hover em { color: var(--navy); }
