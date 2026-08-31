@@ -83,11 +83,18 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Registers POST /demo/reset. Off unless explicitly enabled.
+      DEMO_MODE: ${DEMO_MODE:-false}
     ports:
       - "${API_PORT:-8000}:8000"
     # Hot reload en desarrollo. Se saca para produccion.
     volumes:
       - ./app:/srv/app:ro
+      # Structured NDJSON has to reach the host, or read-hidden-logs cannot glob it.
+      # The container runs as uid 10001 and the host directory belongs to another uid,
+      # so `.logs` is created world-writable by the Makefile. Dev convenience only -
+      # it is gitignored and never ships in the image.
+      - ./.logs:/srv/.logs
     command:
       - uvicorn
       - app.main:app
@@ -109,6 +116,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # Operational console. Vite dev server: the browser talks only to this origin and
+  # Vite proxies /api to the API container, so the backend needs no CORS configuration.
+  # See ARCHITECTURE.md - this is an observability surface, not a product UI.
+  # --------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      # Service name on the compose network, not localhost: the proxy runs inside
+      # the container, where localhost is the container itself.
+      API_TARGET: http://api:8000
+    ports:
+      - "${DASHBOARD_PORT:-5173}:5173"
+    volumes:
+      # Source only. node_modules stays inside the image, or the host's absence of it
+      # would shadow the installed tree.
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   mongo-data:

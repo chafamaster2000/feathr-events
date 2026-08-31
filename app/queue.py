@@ -197,6 +197,18 @@ class InMemoryEventQueue:
             "dlq": len(self._dlq),
         }
 
+    def clear(self) -> None:
+        """Drop every message, in any state.
+
+        Demo affordance only. It is not part of the `EventQueue` port on purpose: no
+        production caller should be able to discard in-flight work, so the capability
+        does not exist at the interface the application depends on.
+        """
+        self._entries.clear()
+        self._visible.clear()
+        self._inflight.clear()
+        self._dlq.clear()
+
     def dead_letters(self) -> list[Event]:
         """Messages that exhausted their retries. Reviewed by hand, never auto-replayed."""
         return list(self._dlq)

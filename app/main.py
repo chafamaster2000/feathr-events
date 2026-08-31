@@ -19,9 +19,11 @@ from app import clients
 from app.cache import StatsCache
 from app.config import settings
 from app.models import Event, EventAccepted, EventIn
+from app.observability import AgentLoggerMiddleware
+from app.observability import log as agent_log
 from app.queries import Bucket, EventQueries
 from app.queue import InMemoryEventQueue, QueueFull
-from app.stores import ElasticEventIndex, MongoEventStore
+from app.stores import COLLECTION, ElasticEventIndex, MongoEventStore
 from app.worker import EventWorker
 
 logging.basicConfig(
@@ -96,6 +98,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Structured NDJSON per request into .logs/agent/, correlated by `x-agent-task-id`.
+# Pure ASGI, so it does not interfere with streaming responses.
+app.add_middleware(AgentLoggerMiddleware)
+
 
 @app.post(
     "/events",
@@ -119,6 +125,9 @@ async def ingest(payload: EventIn, request: Request) -> EventAccepted:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="the queue is full, retry later",
         ) from None
+    # The domain's own correlation id, recorded next to the transport-level one: this is
+    # the id that survives every hop (queue -> worker -> MongoDB -> Elasticsearch).
+    agent_log("ingest.accepted", "event queued", ctx={"eventId": event.event_id})
     return EventAccepted(event_id=event.event_id)
 
 
@@ -226,3 +235,39 @@ async def health(request: Request) -> JSONResponse:
             "worker": state.worker.stats(),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Demo affordance. Registered ONLY when DEMO_MODE is on, so in a normal deployment
+# this route does not exist at all - not disabled, absent. A destructive endpoint that
+# merely checks a flag is one configuration mistake away from being live.
+# ---------------------------------------------------------------------------
+
+if settings.demo_mode:
+
+    @app.post("/demo/reset", tags=["demo"])
+    async def demo_reset(request: Request) -> dict:
+        """Empty every store so a demonstration can start from a known state.
+
+        Scoped to this system's own data: it drops one collection and one index by name,
+        and never takes a target from the caller.
+        """
+        state = request.app.state
+        before = {
+            "mongo": await state.clients.db[COLLECTION].count_documents({}),
+            "queue": state.queue.stats(),
+        }
+        state.queue.clear()
+        await state.clients.db[COLLECTION].drop()
+        await state.clients.elasticsearch.options(ignore_status=404).indices.delete(
+            index=settings.elasticsearch_index
+        )
+        await state.clients.redis.flushdb()
+
+        index = ElasticEventIndex(state.clients.elasticsearch, settings.elasticsearch_index)
+        store = MongoEventStore(state.clients.db)
+        await index.ensure_schema()
+        await store.ensure_schema()
+
+        agent_log("demo.reset", "all stores emptied", ctx=before)
+        return {"status": "reset", "cleared": before}

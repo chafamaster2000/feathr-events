@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # asynchronous, so an accepted event is not in MongoDB yet either. See ARCHITECTURE.md §3.
     stats_cache_ttl: int = 30
 
+    # --- Demo ---
+    # Off by default, and the destructive route is not even registered when it is off:
+    # a disabled endpoint that still exists is one config mistake away from being live.
+    demo_mode: bool = False
+
     # --- App ---
     log_level: str = "INFO"
 

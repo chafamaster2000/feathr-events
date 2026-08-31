@@ -1,21 +1,22 @@
 .PHONY: up down logs health rebuild clean lint
 
-up:            ## Levanta todo el stack
+up:            ## Start the whole stack
+	@mkdir -p .logs/agent && chmod -R 777 .logs
 	docker compose up -d --build
 
-down:          ## Baja los contenedores (conserva los volumenes)
+down:          ## Stop containers, keep volumes
 	docker compose down
 
-logs:          ## Sigue los logs de la API
+logs:          ## Follow the API logs
 	docker compose logs -f api
 
-health:        ## Estado de las tres dependencias
+health:        ## Formatted /health
 	@curl -s http://localhost:8000/health | python3 -m json.tool
 
-rebuild:       ## Rebuild sin cache
+rebuild:       ## Rebuild without cache
 	docker compose build --no-cache api
 
-clean:         ## Baja todo y BORRA los volumenes (se pierden los datos)
+clean:         ## Stop everything and DELETE volumes (data is lost)
 	docker compose down -v
 
 lint:
