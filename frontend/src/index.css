@@ -252,6 +252,20 @@ tr:last-child td { border-bottom: none; }
   pointer-events: none; transition: opacity 200ms ease, transform 200ms ease; }
 .swap-view[data-on='true'] { opacity: 1; transform: none; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .swap-view { transition: none } }
+/* The bucket controls, which belong to the History tab only.
+   Same reasoning as `.swap-view` above and the same measured failure: framer's exit does
+   not resolve in this subtree, which re-renders every two seconds from the stats poll.
+   Measured stuck at `opacity: 1; translateX(6.7px)` six seconds after the switch - the
+   row simply never left, so the Live tab offered controls that do not apply to it.
+   `mode="popLayout"` fails here exactly as `mode="wait"` did, which corrects what I
+   concluded earlier: the mode was never the cause, the re-render is.
+   `visibility` rather than opacity alone, because a control that is merely transparent is
+   still clickable and still in the tab order. */
+.tab-extra { opacity: 0; visibility: hidden; transform: translateX(10px);
+  transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms; }
+.tab-extra[data-on='true'] { opacity: 1; visibility: visible; transform: none;
+  transition: opacity 180ms ease, transform 180ms ease, visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .tab-extra { transition: none } }
 /* Square, so it reads as an affordance rather than a fourth option in the row. */
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; padding: 0; border-radius: 999px; color: var(--muted); }

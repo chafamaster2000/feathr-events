@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import type { useStats } from '../application/useStats'
 import { colorFor } from '../domain/palette'
@@ -197,48 +197,47 @@ export default function StatsPanel({
 
         {/* Only the query tab offers them. Disabled-but-visible read as broken controls;
             the cache is keyed per bucket, so switching there is a different question than
-            the one this tab is asking. */}
-        <AnimatePresence mode="popLayout">
-          {tab === 'query' && (
-            <motion.div
-              key="buckets"
-              className="row"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.18 }}
+            the one this tab is asking.
+
+            Driven by CSS, not by AnimatePresence, for the reason the `.swap` below already
+            documents: this subtree re-renders every two seconds from the stats poll, and
+            framer's exit never resolved against it. Measured six seconds after switching
+            to the Live tab, the row was still mounted at `opacity: 1` with its transform
+            frozen part-way - so the tab that has no buckets was offering three of them.
+            `mode="popLayout"` failed exactly as `mode="wait"` had, which corrects what I
+            wrote when I first hit this: the mode was never the cause. A CSS transition
+            declares the destination instead of animating toward it, and a re-render cannot
+            interrupt what it does not drive. */}
+        <div className="row tab-extra" data-on={tab === 'query'} aria-hidden={tab !== 'query'}>
+          {BUCKETS.map((b) => (
+            <button
+              key={b}
+              onClick={() => onBucket(b)}
+              className={bucket === b ? 'primary' : undefined}
+              style={{ padding: '6px 14px', fontSize: '.85rem' }}
             >
-              {BUCKETS.map((b) => (
-                <button
-                  key={b}
-                  onClick={() => onBucket(b)}
-                  className={bucket === b ? 'primary' : undefined}
-                  style={{ padding: '6px 14px', fontSize: '.85rem' }}
-                >
-                  {b}
-                </button>
-              ))}
-              {/* Beside the buckets, because it belongs to the same control: these four
-                  are what decides which snapshot you are looking at. Icon only — a word
-                  would outweigh the three it sits next to. */}
-              <button
-                className="icon-btn"
-                onClick={() => void reloadQuery()}
-                disabled={loadingQuery}
-                aria-label="recompute this aggregation"
-                title="Recompute"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
-                     className={loadingQuery ? 'spin' : undefined}>
-                  <path d="M20 11a8 8 0 1 0-2.3 5.7" fill="none" stroke="currentColor"
-                        strokeWidth="2.2" strokeLinecap="round" />
-                  <path d="M20 4.5V11h-6.5" fill="none" stroke="currentColor"
-                        strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {b}
+            </button>
+          ))}
+          {/* Beside the buckets, because it belongs to the same control: these four are
+              what decides which snapshot you are looking at. Icon only — a word would
+              outweigh the three it sits next to. */}
+          <button
+            className="icon-btn"
+            onClick={() => void reloadQuery()}
+            disabled={loadingQuery}
+            aria-label="recompute this aggregation"
+            title="Recompute"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
+                 className={loadingQuery ? 'spin' : undefined}>
+              <path d="M20 11a8 8 0 1 0-2.3 5.7" fill="none" stroke="currentColor"
+                    strokeWidth="2.2" strokeLinecap="round" />
+              <path d="M20 4.5V11h-6.5" fill="none" stroke="currentColor"
+                    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="row" style={{ marginBottom: 14 }}>
