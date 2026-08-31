@@ -69,7 +69,7 @@ const STAGES: Stage[] = [
     id: 'worker',
     label: 'Worker ×N',
     x: 468, y: 96, w: 116, h: 52,
-    owns: 'N concurrent asyncio tasks over one queue. Writes MongoDB, then Elasticsearch, then acknowledges. It contains no retry logic: if a write fails it never reaches the delete, and the message returns on its own.',
+    owns: 'Asyncio tasks, not processes. They share this one process and its single event loop, taking turns while each other waits on I/O — so the count is concurrency, not a number of machines. It needs no lock because the work is commutative: every event carries its own timestamp and the upsert is idempotent by event_id. Writes MongoDB, then Elasticsearch, then acknowledges. It contains no retry logic: if a write fails it never reaches the delete, and the message returns on its own.',
   },
   {
     id: 'mongo',
@@ -226,7 +226,7 @@ export default function PipelineDiagram({
   }
   // The ×N stops being a placeholder once /health answers.
   const labelFor = (s: Stage) =>
-    s.id === 'worker' && health ? `Worker ×${health.worker.consumers} tasks` : s.label
+    s.id === 'worker' && health ? `Worker · ${health.worker.consumers} tasks` : s.label
 
   /** The traced event crossed here. Only this drives the single marker. */
   const traced = (step?: number) => step !== undefined && reached > step
@@ -252,15 +252,14 @@ export default function PipelineDiagram({
             </marker>
           </defs>
 
-          {/* the in-process boundary — the claim the whole design rests on */}
+          {/* The in-process boundary, unlabelled on purpose. Three components inside one
+              dashed outline already say they are one unit, and the stacked worker says the
+              eight are inside it — a caption spelling that out kept reading as a
+              contradiction of the very count it sat next to. The claim itself is not lost:
+              it is what EventQueue tells you when you click it, which is where the rest of
+              the detail lives. */}
           <rect x={140} y={78} width={456} height={88} rx={10}
                 fill="none" stroke="var(--line)" strokeDasharray="5 5" />
-          {/* Not decoration: this is the claim the whole design rests on, and the reason
-              `uvicorn --workers` must stay at 1. It has to say the consequence, because
-              "one process" beside "Worker ×8" reads as a contradiction on its own — the
-              eight are tasks sharing this process, and the queue is a variable in it. */}
-          <text x={148} y={72} fontSize={10.5} fill="var(--muted)"
-                letterSpacing="0.08em">ONE PYTHON PROCESS — THE QUEUE IS A VARIABLE IN IT</text>
 
           {EDGES.map((e) => {
             const crossed = traced(e.step)
@@ -331,6 +330,15 @@ export default function PipelineDiagram({
                  style={{ cursor: 'pointer' }} role="button" tabIndex={0}
                  aria-pressed={active}
                  aria-label={`${s.label}. ${s.owns}`}>
+                {/* The stack is the answer to "one process, but eight workers?" — the
+                    eight are drawn as copies of one box sitting inside the one dashed
+                    boundary, which is a thing you can see rather than a sentence you have
+                    to trust. They are asyncio tasks on a single event loop. */}
+                {s.id === 'worker' &&
+                  [8, 4].map((o) => (
+                    <rect key={o} x={s.x + o} y={s.y - o} width={s.w} height={s.h} rx={10}
+                          fill="var(--surface-2)" stroke="var(--line)" strokeWidth={1.4} />
+                  ))}
                 <motion.rect
                   x={s.x} y={s.y} width={s.w} height={s.h} rx={10}
                   animate={{
