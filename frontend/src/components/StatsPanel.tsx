@@ -23,6 +23,17 @@ const BUCKETS: Bucket[] = ["hourly", "daily", "weekly"];
 // does not look right" was: every reading, in both tabs, rendered as a wall.
 const MAX_BAR = 96;
 
+// A non-zero count must never render as nothing. On a linear scale a bucket holding one
+// event against a peak of 21,712 is 0.007 pixels tall - the same picture as an empty
+// bucket, which is the one thing a count chart must never draw. The scale itself is not
+// the problem and a log scale would be a worse answer: it makes small bars visible by
+// making every magnitude unreadable. A floor keeps the proportions of everything large
+// enough to compare, and only changes the bars that were already invisible.
+//
+// Found by the eyes agent reading a screenshot, then confirmed in the arithmetic rather
+// than accepted on its word - it reported the scale as dishonest, which it is not.
+const MIN_SEGMENT_PX = 1.5;
+
 /** Short enough to sit under its own bar. The full ISO string never was. */
 function tick(iso: string, bucket?: string) {
   const [date, time] = iso.replace("T", " ").split(" ");
@@ -104,7 +115,7 @@ function Chart({
                 {types.map((t, ti) => {
                   const v = row[t] ?? 0;
                   if (!v) return null;
-                  const h = (v / peak) * (H - 40);
+                  const h = Math.max(MIN_SEGMENT_PX, (v / peak) * (H - 40));
                   acc += h;
                   return (
                     <motion.rect
