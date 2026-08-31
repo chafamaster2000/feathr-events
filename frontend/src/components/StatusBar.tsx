@@ -1,8 +1,21 @@
 import { motion } from 'framer-motion'
-import type { Health } from '../domain/types'
+import type { DepthSample, Health, QueueStats } from '../domain/types'
+import DepthChart from './DepthChart'
 
 /** Dependencies and worker counters. /health returns 503 when any dependency is down. */
-export default function StatusBar({ health }: { health: Health | null }) {
+/**
+ * One card for one question: how is the system right now.
+ *
+ * Dependency health, the worker's counters and the queue's shape answer it together —
+ * split across two cards, the reader has to correlate them by eye.
+ */
+export default function StatusBar({
+  health,
+  history,
+}: {
+  health: Health | null
+  history: DepthSample[]
+}) {
   const deps = health?.dependencies
   return (
     <div className="card span-12">
@@ -37,6 +50,8 @@ export default function StatusBar({ health }: { health: Health | null }) {
         Four containers, one application process. The API, the queue and the worker share
         it — the queue is a variable in that process's memory, not a service.
       </p>
+
+      <DepthChart history={history} queue={health?.queue as QueueStats | undefined} />
     </div>
   )
 }

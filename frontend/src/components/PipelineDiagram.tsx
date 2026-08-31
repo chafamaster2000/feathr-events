@@ -1,15 +1,28 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useState } from 'react'
-import type { Health, TraceStep } from '../domain/types'
+import type { DepthSample, Health, TraceStep } from '../domain/types'
 
 /**
  * The pipeline, drawn and wired to live state.
  *
- * Two jobs. Statically it is the architecture document's diagram, except the numbers on
- * it are real — queue depth and consumer count come from /health. Dynamically it is the
- * trace: as an event moves, the stage it has reached lights up and a marker travels the
- * edge it just crossed, so the asynchronous gap between "accepted" and "searchable"
- * becomes something you watch rather than something you read about.
+ * Statically it is the architecture document's diagram, except the numbers on it are real
+ * — queue depth and consumer count come from /health.
+ *
+ * Dynamically it speaks two languages, because one event and five hundred are different
+ * questions and deserve different answers.
+ *
+ *   **Trace** (one event): where did *this* event go. A single marker crosses each edge
+ *   once and the stage it reached fills, so the asynchronous gap between "accepted" and
+ *   "searchable" becomes something you watch rather than read about.
+ *
+ *   **Flow** (a burst): where is work moving right now. Edges carry a continuous stream of
+ *   markers while there is traffic on them, derived from /health rather than from any
+ *   per-event tracking — tracing five hundred events individually would be absurd, and the
+ *   interesting question at that scale is not where one event is but whether the backlog
+ *   comes back down.
+ *
+ * The queue node also takes an amber tint proportional to its backlog, which is the same
+ * colour the charts use for "lent out, not yet acknowledged".
  *
  * Clicking a stage explains what that stage owns. The explanations are the same ones in
  * ARCHITECTURE.md §2 — a diagram that disagrees with the document is worse than none.
@@ -91,15 +104,38 @@ const EDGES: { from: StageId; to: StageId; d: string; label: string; step?: numb
 
 export default function PipelineDiagram({
   health,
+  history,
   steps,
   running,
+  ingesting,
 }: {
   health: Health | null
+  history: DepthSample[]
   steps: TraceStep[]
   running: boolean
+  ingesting: boolean
 }) {
   const [selected, setSelected] = useState<StageId | null>(null)
   const reached = steps.filter((s) => s.state === 'done').length
+
+  // Flow, derived from live readings rather than per-event tracking.
+  //
+  // The look-back matters: /health is polled once a second and a burst of five hundred
+  // drains in well under that, so a single sample would miss it entirely. Three samples
+  // keep an edge lit for a couple of seconds after the work passes through, which is long
+  // enough to see and short enough to still mean "now".
+  const recent = history.slice(-3)
+  const completing = recent.some((s, i) => i > 0 && s.processed > recent[i - 1].processed)
+  const backlog = health ? health.queue.visible : 0
+  const inFlight = health ? health.queue.in_flight : 0
+
+  const flow = {
+    intake: ingesting,
+    dequeue: inFlight > 0 || completing,
+    write: completing,
+  }
+  // Enough backlog to tint the node, capped so a burst does not saturate it instantly.
+  const load = Math.min(1, backlog / 120)
 
   const live: Partial<Record<StageId, string>> = {
     queue: health ? `${health.queue.visible + health.queue.in_flight} queued` : '',
@@ -109,6 +145,14 @@ export default function PipelineDiagram({
 
   const isLit = (step?: number) => step !== undefined && reached > step
   const stage = STAGES.find((s) => s.id === selected)
+
+  /** Which edges carry flow, independent of any trace. */
+  const flowing = (from: StageId, to: StageId) => {
+    if (from === 'client' || (from === 'api' && to === 'queue')) return flow.intake
+    if (from === 'queue') return flow.dequeue
+    if (from === 'worker') return flow.write
+    return false
+  }
 
   return (
     <div className="diagram">
@@ -131,23 +175,38 @@ export default function PipelineDiagram({
           {/* the in-process boundary — the claim the whole design rests on */}
           <rect x={140} y={78} width={456} height={88} rx={10}
                 fill="none" stroke="var(--line)" strokeDasharray="5 5" />
-          <text x={148} y={72} fontSize={10.5} fill="var(--muted)" fontFamily="ui-monospace"
+          <text x={148} y={72} fontSize={10.5} fill="var(--muted)"
                 letterSpacing="0.08em">ONE PYTHON PROCESS — “IN-PROCESS”</text>
 
           {EDGES.map((e) => {
             const lit = isLit(e.step)
+            const flows = flowing(e.from, e.to)
+            const active = lit || flows
             return (
               <g key={`${e.from}-${e.to}`}>
-                <path d={e.d} fill="none" strokeWidth={lit ? 2.2 : 1.4}
-                      stroke={lit ? 'var(--cyan)' : 'var(--line)'}
-                      markerEnd={`url(#${lit ? 'pl' : 'pa'})`}
+                <path d={e.d} fill="none" strokeWidth={active ? 2.2 : 1.4}
+                      stroke={active ? 'var(--cyan)' : 'var(--line)'}
+                      markerEnd={`url(#${active ? 'pl' : 'pa'})`}
                       strokeDasharray={e.from === 'redis' ? '4 4' : undefined} />
+
+                {/* Trace: one marker, once. This event, this crossing. */}
                 {lit && (
-                  <motion.circle r={4} fill="var(--cyan)"
+                  <motion.circle r={4.5} fill="var(--cyan)"
                     initial={{ offsetDistance: '0%' }} animate={{ offsetDistance: '100%' }}
                     transition={{ duration: 0.8, ease: 'easeInOut' }}
                     style={{ offsetPath: `path("${e.d}")` }} />
                 )}
+
+                {/* Flow: a stream, while there is traffic. Staggered so it reads as
+                    throughput rather than as one confused dot. */}
+                {flows && !lit &&
+                  [0, 0.33, 0.66].map((delay) => (
+                    <motion.circle key={delay} r={3.2} fill="var(--cyan)"
+                      initial={{ offsetDistance: '0%', opacity: 0 }}
+                      animate={{ offsetDistance: '100%', opacity: [0, 1, 1, 0] }}
+                      transition={{ duration: 1.1, delay, repeat: Infinity, ease: 'linear' }}
+                      style={{ offsetPath: `path("${e.d}")` }} />
+                  ))}
               </g>
             )
           })}
@@ -162,8 +221,18 @@ export default function PipelineDiagram({
                 <motion.rect
                   x={s.x} y={s.y} width={s.w} height={s.h} rx={10}
                   animate={{
-                    fill: lit ? 'var(--cyan-soft)' : 'var(--surface-2)',
-                    stroke: active ? 'var(--navy)' : lit ? 'var(--cyan)' : 'var(--line)',
+                    fill: lit
+                      ? 'var(--cyan-soft)'
+                      : // The queue tints with its backlog: amber is what the charts use
+                        // for work that is held rather than done.
+                        s.id === 'queue' && load > 0
+                        ? `color-mix(in srgb, var(--inflight) ${Math.round(load * 26)}%, var(--surface-2))`
+                        : 'var(--surface-2)',
+                    stroke: active
+                      ? 'var(--navy)'
+                      : lit || (s.id === 'queue' && load > 0.05)
+                        ? 'var(--cyan)'
+                        : 'var(--line)',
                   }}
                   strokeWidth={active ? 2.2 : 1.4}
                 />
@@ -171,15 +240,14 @@ export default function PipelineDiagram({
                       fontSize={13} fontWeight={700} fill="var(--navy)">{s.label}</text>
                 {live[s.id] && (
                   <text x={s.x + s.w / 2} y={s.y + 38} textAnchor="middle" fontSize={10.5}
-                        fill="var(--muted)" fontFamily="ui-monospace">{live[s.id]}</text>
+                        fill="var(--muted)">{live[s.id]}</text>
                 )}
               </g>
             )
           })}
 
           {running && (
-            <text x={W / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="var(--muted)"
-                  fontFamily="ui-monospace">tracing…</text>
+            <text x={W / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="var(--muted)" style={{ fontVariantNumeric: 'tabular-nums' }}>tracing…</text>
           )}
         </svg>
       </div>

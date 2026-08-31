@@ -1,7 +1,7 @@
 import { useHealthPoll } from '../application/useHealthPoll'
+import { useIngest } from '../application/useIngest'
 import { useSearch } from '../application/useSearch'
-import DepthChart from '../components/DepthChart'
-import LoadControls from '../components/LoadControls'
+import { useTrace } from '../application/useTrace'
 import SearchBar from '../components/SearchBar'
 import SearchResults from '../components/SearchResults'
 import StatsPanel from '../components/StatsPanel'
@@ -15,9 +15,11 @@ import { useState } from 'react'
  * only when DEMO_MODE is on.
  */
 export default function Dashboard() {
+  const [refreshKey, setRefreshKey] = useState(0)
   const { health, history, error } = useHealthPoll(1000)
   const search = useSearch()
-  const [refreshKey, setRefreshKey] = useState(0)
+  const trace = useTrace()
+  const ingest = useIngest(() => setRefreshKey((k) => k + 1))
 
   return (
     <div className="shell">
@@ -53,10 +55,18 @@ export default function Dashboard() {
       )}
 
       <div className="grid">
-        <TraceHero health={health} />
-        <StatusBar health={health} />
-        <DepthChart history={history} queue={health?.queue} />
-        <LoadControls onDone={() => setRefreshKey((k) => k + 1)} />
+        <TraceHero
+          health={health}
+          history={history}
+          steps={trace.steps}
+          running={trace.running}
+          eventId={trace.eventId}
+          busy={ingest.busy}
+          last={ingest.last}
+          onIngest={(n) => (n === 1 ? void trace.run() : void ingest.burst(n))}
+          onReset={() => void ingest.reset()}
+        />
+        <StatusBar health={health} history={history} />
         <StatsPanel refreshKey={refreshKey} />
         {search.hasSearched && (
           <SearchResults

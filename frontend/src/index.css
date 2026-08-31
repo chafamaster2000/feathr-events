@@ -43,6 +43,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Monospace is reserved for literal data and code - identifiers, key=value pairs,
+   configuration names. The client's own site does not use a monospace face anywhere, so
+   using one for interface chrome (labels, captions, measurements) reads as a different
+   product. Numbers that need to line up get tabular figures from the brand face instead,
+   which is what the feature is for. */
 code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
 .shell { max-width: 1200px; margin: 0 auto; padding: 26px 24px 90px; }
@@ -89,7 +94,7 @@ header.top .sub { color: var(--muted); font-size: 0.95rem; margin-left: auto;
 .pill {
   font-size: 0.8rem; padding: 5px 13px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
-  font-family: ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 .pill.up { background: var(--cyan-soft); border-color: var(--cyan); color: var(--navy); }
 .pill.down { background: #fdecee; border-color: var(--dead); color: var(--dead); }
@@ -99,7 +104,7 @@ header.top .sub { color: var(--muted); font-size: 0.95rem; margin-left: auto;
 }
 .metric { background: var(--surface-2); border-radius: 12px; padding: 14px 16px; }
 .metric dt { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--muted); font-family: ui-monospace, monospace; font-weight: 600; }
+  color: var(--muted); font-weight: 700; }
 .metric dd { margin: 5px 0 0; font-size: 1.7rem; font-variant-numeric: tabular-nums;
   font-weight: 700; letter-spacing: -0.02em; color: var(--navy); }
 .metric.visible dd { color: var(--visible); }
@@ -140,7 +145,7 @@ tr:last-child td { border-bottom: none; }
 .step { display: grid; grid-template-columns: 64px 1fr; gap: 14px; padding: 11px 0;
   border-bottom: 1px solid var(--line); }
 .step:last-child { border-bottom: none; }
-.step .at { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+.step .at { font-variant-numeric: tabular-nums;
   color: var(--navy); font-weight: 700; font-size: 0.9rem; text-align: right; }
 .step .label { font-weight: 700; }
 .step .detail { color: var(--muted); font-size: 0.9rem; }
@@ -182,7 +187,7 @@ tr:last-child td { border-bottom: none; }
   border-radius: 50%; background: var(--cyan); border: 2px solid var(--surface);
   box-shadow: 0 0 0 2px var(--cyan); }
 .hop.failed .hop-dot { background: var(--dead); box-shadow: 0 0 0 2px var(--dead); }
-.hop-at { font-family: ui-monospace, monospace; font-weight: 700; font-size: 1.15rem;
+.hop-at { font-weight: 700; font-size: 1.15rem;
   color: var(--navy); font-variant-numeric: tabular-nums; }
 .hop.failed .hop-at { color: var(--dead); }
 .hop-label { font-weight: 700; margin-top: 2px; }
@@ -211,7 +216,7 @@ tr:last-child td { border-bottom: none; }
   color: var(--muted); font-weight: 700; margin-right: 2px; }
 .chip { padding: 3px 11px; font-size: .8rem; font-weight: 500; border-radius: 999px;
   display: inline-flex; align-items: center; gap: 6px; }
-.chip em { font-style: normal; font-family: ui-monospace, monospace; font-size: .72rem;
+.chip em { font-style: normal; font-variant-numeric: tabular-nums; font-size: .74rem;
   color: var(--muted); }
 .chip:hover em { color: var(--navy); }
 
@@ -222,3 +227,24 @@ tr:last-child td { border-bottom: none; }
 .owns { background: var(--surface-2); border-radius: 12px; padding: 14px 18px; margin-top: 12px;
   font-size: .92rem; line-height: 1.6; color: var(--ink-2); overflow: hidden; }
 .owns strong { color: var(--navy); }
+
+/* ---- split button: the action, with the quantity one click deeper ---- */
+.hero-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.split { position: relative; display: inline-flex; }
+.split-main { border-radius: 999px 0 0 999px; padding-right: 16px; }
+.split-caret { border-radius: 0 999px 999px 0; padding: 12px 14px; margin-left: 1px;
+  display: inline-flex; align-items: center; }
+.menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; min-width: 268px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(25, 38, 60, .14); padding: 6px; }
+.menu button { display: flex; width: 100%; align-items: baseline; gap: 12px; text-align: left;
+  border: none; background: transparent; border-radius: 10px; padding: 9px 12px; }
+.menu button:hover { background: var(--cyan-soft); }
+.menu button strong { font-size: 1rem; min-width: 34px; font-variant-numeric: tabular-nums; }
+.menu button span { color: var(--muted); font-size: .85rem; font-weight: 400; }
+.readout { margin: 0; font-size: .88rem; color: var(--muted); text-align: right;
+  font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .hero-actions { align-items: stretch; width: 100%; }
+  .readout { text-align: left; }
+}

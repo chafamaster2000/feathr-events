@@ -88,7 +88,7 @@ function Chart({ stats }: { stats: Stats | null }) {
             )
           })}
           <line x1={0} x2={W} y1={H - 20} y2={H - 20} stroke="var(--line)" strokeWidth={1.5} />
-          <text x={0} y={H - 5} fontSize={11} fill="var(--muted)" fontFamily="ui-monospace">
+          <text x={0} y={H - 5} fontSize={11} fill="var(--muted)" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {columns[0]?.[0].replace('T', ' ').slice(0, 16)}
           </text>
           <text
@@ -96,7 +96,6 @@ function Chart({ stats }: { stats: Stats | null }) {
             y={H - 5}
             fontSize={11}
             fill="var(--muted)"
-            fontFamily="ui-monospace"
             textAnchor="end"
           >
             {columns.at(-1)?.[0].replace('T', ' ').slice(0, 16)} · peak {peak}

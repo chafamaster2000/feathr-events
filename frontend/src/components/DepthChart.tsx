@@ -44,8 +44,8 @@ export default function DepthChart({
       : `${path(series)} L ${x(series.length - 1).toFixed(1)} ${H - PAD} L ${x(0).toFixed(1)} ${H - PAD} Z`
 
   return (
-    <div className="card span-8">
-      <h2>Queue depth &amp; throughput · last {history.length}s</h2>
+    <>
+      <h2 style={{ marginTop: 26 }}>Queue depth &amp; throughput · last {history.length}s</h2>
 
       <dl className="metrics" style={{ marginBottom: 18 }}>
         <div className="metric visible">
@@ -133,7 +133,6 @@ export default function DepthChart({
               textAnchor="middle"
               fill="var(--muted)"
               fontSize={13}
-              fontFamily="ui-monospace, monospace"
             >
               idle · nothing queued, nothing in flight
             </text>
@@ -155,6 +154,6 @@ export default function DepthChart({
         the shape after a burst — it should rise and come back down. A line that climbs and
         stays up says the worker is the bottleneck.
       </p>
-    </div>
+    </>
   )
 }
