@@ -11,6 +11,12 @@ tests
 .env
 *.md
 
+# The dashboard has its own build context (./frontend) and its own .dockerignore. For the
+# API build the whole directory is dead weight: 80.7MB of it, almost all node_modules,
+# uploaded to the daemon on every build so that three files can be copied out of a context
+# that never referenced it.
+frontend/
+
 # Development tooling: NEVER goes into the image.
 # The harness reads documents and logs without authentication. That is safe because it
 # only runs on a developer machine, against a developer stack. Inside the container it
