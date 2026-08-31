@@ -1,10 +1,11 @@
 """Structured NDJSON logging with a correlation id.
 
-Adapted from the dev-workflow FastAPI reference snippet. Deviations from it, and why:
+Adapted from a FastAPI logging snippet I keep outside this repository. Decisions worth
+recording, since the source is not here to compare against:
 
   * Lives at `app/observability.py` rather than `infrastructure/logging/` — this project
     has a flat `app/` package, and inventing a directory tree for one module would be
-    worse than following the reference layout literally.
+    worse than following the original layout literally.
   * Logs the domain's own `event_id` into `ctx` alongside the transport-level task id.
     This system already has a correlation id that survives every hop (API -> queue ->
     worker -> both stores); the header id only covers one request. Both are recorded so a

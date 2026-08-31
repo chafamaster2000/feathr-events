@@ -470,10 +470,10 @@ flowchart LR
     I -. "a finding, reproduced first" .-> D
 ```
 
-The gates are in the repository, not just described here: `.claude/skills/` holds the
-rules and `.claude/agents/` the reviewers, so every claim in this section can be read
-rather than taken on trust. They were ignored by `.gitignore` until a panel would have had
-no way to check any of it.
+Three of the four leave something in the repository, which is the only reason to believe
+any of this: `app/observability.py` and `.logs/agent/` are the logging gate, `scripts/logcheck.py`
+is how it is read, and `.claude/agents/` holds the reviewers. The rules themselves are
+personal tooling and live outside this repository — what is here is what they produced.
 
 Each gate exists because of a specific failure. **Context7:** the async MongoDB driver is
 `pymongo`, not the `motor` a decade of tutorials name — deprecated 2026-05-14. **Logs:**
