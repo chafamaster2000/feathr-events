@@ -89,7 +89,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if pending["visible"] or pending["in_flight"]:
             # This has to be said out loud: the queue lives in memory and goes with the
             # process. It is the honest cost of "in-process", and the reason SQS exists.
+            #
+            # The ids, not only the count. Every one of these was answered with a 202, and
+            # the producer will never retry it — "losing 12 events" is not something anyone
+            # can act on, while a list of ids is. The events are right here at the moment
+            # they are lost, and printing them is the difference between an admitted
+            # weakness and an auditable one.
             log.warning("losing %s queued events on shutdown", pending)
+            for event in app.state.queue.pending_events():
+                log.warning("lost on shutdown: %s", event.model_dump_json())
         await clients.disconnect(app.state.clients)
 
 

@@ -72,8 +72,20 @@ def test_an_absent_timestamp_is_stamped_once_at_the_edge() -> None:
     """
     before = datetime.now(UTC)
     event = Event.from_input(EventIn(**payload()))
-    assert before <= event.timestamp <= datetime.now(UTC)
+    # A millisecond of slack below, because the stamp is truncated to that resolution and
+    # can therefore land just before a microsecond-precision reading taken first.
+    assert before - timedelta(milliseconds=1) <= event.timestamp <= datetime.now(UTC)
     assert event.timestamp == event.received_at
+
+
+def test_the_stamp_is_truncated_to_milliseconds() -> None:
+    """So that one instant does not come back as two values.
+
+    BSON stores milliseconds and Elasticsearch stores what it was given, so a microsecond
+    stamp made the same event read `…173000` from MongoDB and `…173930Z` from search.
+    Truncating where the value is created removes the discrepancy at its source.
+    """
+    assert Event.from_input(EventIn(**payload())).timestamp.microsecond % 1000 == 0
 
 
 def test_metadata_is_bounded() -> None:

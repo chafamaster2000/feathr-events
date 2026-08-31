@@ -23,7 +23,17 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    """UTC, truncated to the millisecond.
+
+    Truncated because BSON stores milliseconds and Elasticsearch stores what it was given.
+    Left at microsecond precision the same event came back as `…173000` from MongoDB and
+    `…173930Z` from the search path: one instant with two values, differing in a way no
+    caller can reconcile. Rounding where the value is created costs nothing that matters
+    at this resolution and removes the discrepancy at its source rather than patching it
+    on the way out.
+    """
+    now = datetime.now(UTC)
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
 
 
 # How far ahead of the server a client clock may be before its timestamp is refused.

@@ -222,8 +222,22 @@ class InMemoryEventQueue:
         self._dlq.clear()
 
     def dead_letters(self) -> list[Event]:
-        """Messages that exhausted their retries. Reviewed by hand, never auto-replayed."""
+        """Messages that exhausted their retries. Reviewed by hand, never auto-replayed.
+
+        Reachable only from inside this process, which is the point rather than an
+        oversight: an in-process queue has no outside. The durable record is the ERROR
+        line written when the message arrives here, carrying the whole event.
+        """
         return list(self._dlq)
+
+    def pending_events(self) -> list[Event]:
+        """Everything the process would take with it if it stopped now.
+
+        Visible and in-flight both count: an in-flight message was never acknowledged, so
+        it is as lost as one still waiting. Used by the shutdown path to name what it is
+        about to drop rather than only counting it.
+        """
+        return [entry.event for entry in self._entries.values()]
 
     # ---- internal -----------------------------------------------------------
 
@@ -248,12 +262,17 @@ class InMemoryEventQueue:
                         DLQ_MAXLEN,
                         entry.event.event_id,
                     )
+                # The whole event, not a summary. The dead-letter lives in this process's
+                # memory, so nothing outside can read it and a restart takes it with them:
+                # "reviewed by hand" has a deadline nobody set. Writing the payload here
+                # makes the log the durable record, which is the only recovery path an
+                # in-process queue can honestly offer. A real SQS DLQ is a queue you can
+                # consume from, and that is one of the things §4 says it buys.
                 log.error(
-                    "dead-lettering %s after %d deliveries (type=%s user=%s)",
+                    "dead-lettering %s after %d deliveries: %s",
                     entry.event.event_id,
                     entry.receive_count,
-                    entry.event.event_type,
-                    entry.event.user_id,
+                    entry.event.model_dump_json(),
                 )
                 self._dlq.append(entry.event)
                 del self._entries[message_id]

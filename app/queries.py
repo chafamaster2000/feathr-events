@@ -371,6 +371,17 @@ class EventQueries:
 
     @staticmethod
     def _to_output(doc: dict[str, Any]) -> dict[str, Any]:
-        """`_id` is a MongoDB detail; on the outside the field is called `event_id`."""
+        """`_id` is a MongoDB detail; on the outside the field is called `event_id`.
+
+        The timestamps get their offset back here. BSON has no timezone, so pymongo hands
+        back naive datetimes that FastAPI then serialises without a marker - and a client
+        parsing `2026-08-31T05:57:23.173` gets a naive value it will almost certainly read
+        as local time, silently shifting every event by its own UTC offset. The search
+        path never lost the marker, so the two reads disagreed about the same event.
+        """
         doc["event_id"] = doc.pop("_id")
+        for field in ("timestamp", "received_at"):
+            value = doc.get(field)
+            if isinstance(value, datetime) and value.tzinfo is None:
+                doc[field] = value.replace(tzinfo=UTC)
         return doc

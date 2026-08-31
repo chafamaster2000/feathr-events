@@ -349,7 +349,21 @@ delay = min(base * 2 ** (receive_count - 1), CAP)
 
 A failing message becomes invisible for longer on each attempt until `receive_count`
 exceeds the maximum, at which point it is routed to the dead-letter queue instead of back
-to visible. One mechanism covers retries, backoff and the DLQ — which is how SQS does it.
+to visible. One mechanism covers retries, backoff and the DLQ. **That is not how SQS does it**, and
+the difference matters for the migration story in this same section.
+
+SQS's visibility timeout does not grow with the receive count: it is fixed per queue or
+per message, and a consumer that wants backoff calls `ChangeMessageVisibility` itself. The
+redrive policy gives `maxReceiveCount` → DLQ, so half of this mechanism transfers and half
+does not. A real `SQSEventQueue` adapter cannot reproduce the growing timeout server-side,
+so the backoff would have to move into the worker — the exact layer this design forbids
+from holding retry logic. The port speaks SQS's vocabulary faithfully; on this one point
+it does not speak its semantics, and "the application changes in exactly one place" is
+true of everything except this.
+
+The growing timeout also conflates two different things: how long a consumer is allowed to
+process a message, and how long to wait before trying again. A message on its fifth
+attempt that fails in five seconds still sits invisible for the remaining 475.
 
 ### On deduplication
 
@@ -483,6 +497,15 @@ can see.
 
 The last two rows are the same row, and that is the honest cost of the design.
 
+**How long is "in time"?** Nobody had put a number on it. With the defaults the retry
+budget is 30 + 60 + 120 + 240 + 480 = **930 seconds**, so an outage past roughly **15
+minutes** routes everything accepted during it to the dead-letter queue. Two things make
+that worse than it sounds: dead-lettering frees the entry it came from, so the queue never
+fills and the `429` backpressure never fires — the API keeps answering 202 for events
+marching into the pit — and the dead-letter is process memory, so a restart takes them.
+The mitigation available today is the log: every dead-lettered event is written whole at
+ERROR, which is the only durable record an in-process queue can offer.
+
 ### If the worker crashes mid-batch
 
 Less dramatic than it sounds, because the `delete` is per message rather than per batch.
@@ -523,8 +546,18 @@ unit is retried. Re-writing MongoDB is harmless *only because* the upsert is ide
 the two decisions hold each other up.
 
 The known limit, stated rather than hidden: between the failure and the retry, MongoDB
-holds an event Elasticsearch cannot find. The window is bounded by the visibility
-timeout. A better answer exists and is out of scope for the time available — see §8.
+holds an event Elasticsearch cannot find.
+
+That window is **not** bounded by the visibility timeout, which an earlier version of this
+paragraph claimed. It is bounded by the backoff, which grows: 30s, 60s, 120s, 240s, 480s
+with the defaults, so the last gap is sixteen times the first. And two cases are not
+bounded at all — if the retries are exhausted the message dead-letters and the divergence
+is permanent until somebody runs `scripts/reindex.py`; if the process dies between the two
+writes, the message goes with the queue and no retry ever happens.
+
+Worse, nothing detects it. `/health` pings both stores but never compares them, so the
+first signal is a user reporting a missing search result. A count comparison on a timer is
+the cheap version and it is not here — see §8.
 
 ---
 
