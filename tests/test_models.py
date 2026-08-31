@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from app.models import FUTURE_SKEW, Event, EventIn
+from app.models import FUTURE_SKEW, MAX_METADATA_BYTES, Event, EventIn
 
 
 def payload(**over: object) -> dict:
@@ -74,3 +74,23 @@ def test_an_absent_timestamp_is_stamped_once_at_the_edge() -> None:
     event = Event.from_input(EventIn(**payload()))
     assert before <= event.timestamp <= datetime.now(UTC)
     assert event.timestamp == event.received_at
+
+
+def test_metadata_is_bounded() -> None:
+    """Free-form is not the same as unbounded.
+
+    The queue's own bound counts messages, so without this the 429 never fires on volume
+    that matters: ten thousand events carrying megabytes each is tens of gigabytes of
+    process memory. MongoDB would refuse the document at 16MB, which turns an oversized
+    event into a deterministic poison message - five guaranteed failures and a worker slot
+    each time, before it reaches the dead-letter.
+    """
+    with pytest.raises(ValidationError, match="over the"):
+        EventIn(**payload(metadata={"blob": "x" * (MAX_METADATA_BYTES + 1)}))
+
+
+def test_ordinary_metadata_passes() -> None:
+    """The cap must not be in the way of what the brief describes: browser info, device
+    type, feature-specific data."""
+    ordinary = {"browser": "firefox", "device": "mobile", "plan": "pro", "amount": 42}
+    assert EventIn(**payload(metadata=ordinary)).metadata == ordinary

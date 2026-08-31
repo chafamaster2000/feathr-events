@@ -114,7 +114,15 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health > /dev/null"]
+      # No `-f`. A container healthcheck asks one question: is this process alive and
+      # serving? `/health` answers a different one - it returns 503 when any dependency
+      # is down, which is the right readiness signal for a load balancer and the wrong
+      # trigger for a restart. With `-f`, a Redis blip marked this container unhealthy,
+      # and under anything that acts on that (a Kubernetes liveness probe, ECS, autoheal)
+      # the process would be restarted. This process owns the only copy of the queue, so
+      # a wrong restart is not an inconvenience, it is data loss - and Redis is the one
+      # dependency ingestion never touches. Alive is the question; ready is /health's.
+      test: ["CMD-SHELL", "curl -sS -o /dev/null http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 5

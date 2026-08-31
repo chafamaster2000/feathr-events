@@ -14,6 +14,7 @@ called in the HTTP layer, before the queue is touched. See ARCHITECTURE.md §2.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,6 +30,11 @@ def _now() -> datetime:
 # Generous enough for unsynchronised machines, far short of useful for back-dating the
 # top of a listing.
 FUTURE_SKEW = timedelta(minutes=5)
+
+# Generous for event metadata - browser, device, a handful of feature-specific keys -
+# and three orders of magnitude below MongoDB's 16MB document limit, so the store can
+# never be the thing that discovers the event is too big.
+MAX_METADATA_BYTES = 32_768
 
 
 class EventIn(BaseModel):
@@ -76,6 +82,28 @@ class EventIn(BaseModel):
         if v > _now() + FUTURE_SKEW:
             raise ValueError(
                 f"timestamp is more than {int(FUTURE_SKEW.total_seconds())}s in the future"
+            )
+        return v
+
+    @field_validator("metadata")
+    @classmethod
+    def _bound_the_metadata(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """`metadata` is free-form, which is not the same as unbounded.
+
+        Two limits meet here and neither was enforced. The queue's bound counts
+        *messages*, so ten thousand events carrying megabytes each is tens of gigabytes
+        of process memory with the 429 never firing. And MongoDB refuses a document over
+        16MB, which makes an oversized event a deterministic poison message: five
+        guaranteed failures, then the dead-letter, having consumed a worker slot each
+        time. Refusing it at the edge costs one 422 instead.
+
+        The cap is on the serialised size because that is what both the queue holds and
+        the stores receive; a key count would miss one deep value.
+        """
+        size = len(json.dumps(v, default=str))
+        if size > MAX_METADATA_BYTES:
+            raise ValueError(
+                f"metadata is {size} bytes, over the {MAX_METADATA_BYTES}-byte limit"
             )
         return v
 
