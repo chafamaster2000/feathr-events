@@ -415,6 +415,116 @@ The application changes in exactly one place: which adapter is constructed at st
 
 ---
 
+## 4b. Rate limiting
+
+A token bucket per client, in front of writes and reads separately. `app/ratelimit.py`.
+
+### It is not backpressure, and conflating them is the trap
+
+The queue's bound already defends the process: full means `429`. A rate limiter answers
+`429` too, and the two say opposite things.
+
+| | `queue_full` | `rate_limit` |
+|---|---|---|
+| about | the system | this caller |
+| who sees it | everyone | one client |
+| what fixes it | waiting for the worker | slowing down |
+| who is at fault | nobody, or the worker | the caller |
+
+A client that cannot tell them apart draws the wrong conclusion from either — it reads
+its own impatience as the pipeline saturating, or reads real saturation as its own
+quota. So both responses carry `X-Throttle-Reason`, and the console counts them in
+separate columns. The header exists because the status code is ambiguous *by design*:
+`429` is correct for both, and RFC 6585 does not distinguish them.
+
+### Why the numbers are what they are
+
+`queue_maxsize` is 10,000. At **2,000 writes per ten seconds** a single client needs 50
+seconds of uninterrupted effort to fill the queue alone, and the worker drains it far
+faster than that. That buys a specific property, and it is the point of the whole
+feature:
+
+> Reaching the queue's bound is a systemic condition, never one caller's doing.
+
+Before the limiter, one impatient script could push the API to `429` and every other
+producer would see backpressure caused entirely by that script. Afterwards, backpressure
+means the *aggregate* outran the worker — which is the only reading that is actionable.
+
+The limit is therefore a **fairness** bound, not a capacity one. Capacity is the queue's
+job and it already does it.
+
+### Why reads get their own, larger bucket
+
+Ingesting and observing are different activities, and sharing a bucket would make the
+first silence the second. The console polls `GET /events` every **25ms** while tracing one
+event through the pipeline — 40 requests a second, from one address, all legitimate — and
+Vite proxies the browser, so the entire dashboard arrives as a single client sharing a
+single bucket. A shared budget would have made the dashboard the first thing throttled by
+its own burst button, and the symptom would have looked like a broken UI rather than a
+rate limit.
+
+Reads are also cheap: one is served from Redis, the rest are indexed lookups. 3,000 per
+ten seconds, and a test pins the console's real polling constants against it so lowering
+the limit fails in CI rather than in a browser.
+
+`/health` is exempt entirely. Rate limiting a liveness probe is how a busy minute becomes
+a restart loop: the orchestrator asks whether the process is alive, the limiter answers
+`429`, and a question nobody rationed gets read as death.
+
+### Why in-process, and why not Redis
+
+Same reasoning as the queue, and the same failure if ignored: N processes would be N
+limiters each granting the full rate, silently multiplying the limit by N.
+`_refuse_multiple_processes()` (§5) already forbids the configuration that would cause it,
+so the two decisions hold each other up.
+
+Redis is available and would be the natural production home — but §6 verifies that the
+system keeps serving with Redis down, because the cache is an optimisation rather than a
+dependency. Putting the limiter there would make Redis load-bearing for ingestion and
+quietly undo that property. The honest options are "in-process, single process" or
+"Redis, and accept the dependency"; this is the first, and §7 is where it changes.
+
+### `X-Forwarded-For` is not trusted by default
+
+The header is written by the caller. Honouring it unconditionally hands anyone a fresh
+bucket per request and defeats the limiter completely — it is correct behind a proxy that
+overwrites the header, and a vulnerability everywhere else. That makes it a deployment
+fact rather than a default, so it is a setting
+(`RATE_LIMIT_TRUST_FORWARDED_FOR`) that is off until someone asserts the topology.
+
+### The limiter is itself an abuse surface
+
+The bucket table is keyed by a value the caller controls. One address per packet and it
+becomes the memory exhaustion it exists to prevent, so it is bounded at 4,096 clients and
+evicts idle buckets first — a bucket back at full capacity is a client that stopped
+asking, and forgetting it loses nothing, because recreating it produces the same state.
+Only when every bucket is in use does eviction start costing accuracy, and then LRU
+evicts whoever has been quiet longest.
+
+Writing that eviction produced the one real bug in the feature, caught by its own test: a
+bucket is created full, eviction reads *full* as *idle*, so evicting before the token was
+spent deleted the caller that was asking right then. Every request from a new client
+would have landed in a fresh bucket and the limit would have applied to nobody. Spend
+first, evict after.
+
+### Measured
+
+```
+6,000 POST /events at 509 req/s  ->  4,349 x 202,  1,651 x 429 (rate_limit)
+```
+
+The arithmetic checks: 2,000 tokens in the bucket plus 11.8s of refill at 200/s is 4,360,
+against 4,349 observed. And the console's own largest burst — 500 events at 25 concurrent
+posts — is never throttled, four times in a row, which is asserted as a test rather than
+left to a number that looks comfortable.
+
+### What would change in production
+
+Per-address is the weakest identity available. With authentication the bucket key becomes
+the API key, which is the unit abuse actually has; without it, an attacker with a /24
+holds 256 buckets. That is why §8 lists authentication as the larger of the two gaps
+rather than a peer of this one.
+
 ## 5. Concurrency, and why it is safe
 
 The worker runs **8 concurrent consumers** by default, over one shared queue.
@@ -755,8 +865,9 @@ beyond what the brief specifies.
 per-stage latency (`received_at` → written) and DLQ rate deserve real metrics rather than
 a health endpoint.
 
-**Authentication and rate limiting.** The API is open. Both are listed as bonuses in the
-brief and both were consciously skipped in favour of the reasoning above.
+**Authentication.** The API is open, so `user_id` is whatever the caller says it is.
+Rate limiting is now implemented (§4b); authentication is not, and it is the larger of the
+two gaps — a limit per address is meaningless when the addresses are anonymous.
 
 ---
 

@@ -16,6 +16,8 @@ that seam is a Protocol.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -23,6 +25,7 @@ import pytest
 
 from app.config import settings
 from app.models import Event
+from app.queries import LIVE_BIN_SECONDS
 from app.stores import COLLECTION
 from tests.conftest import eventually, refresh_index
 
@@ -204,6 +207,14 @@ async def test_cycle_cache_serves_a_closed_window(client: httpx.AsyncClient) -> 
         what="the first event landing",
     )
 
+    # Land at the start of a bin before measuring. The cache key *is* the bin slot, so a
+    # pair of calls that straddles a two-second boundary sees the key roll between them
+    # and the second one legitimately recomputes. The test's premise is "two calls inside
+    # one slot"; until now it stated that premise without establishing it, and failed
+    # roughly once in six runs for a reason that was never a defect in the system.
+    now = time.time()
+    await asyncio.sleep(LIVE_BIN_SECONDS - (now % LIVE_BIN_SECONDS) + 0.05)
+
     miss = (await client.get("/events/stats/realtime")).json()
     assert miss["ttl_seconds"] == settings.stats_cache_ttl
 
@@ -215,9 +226,7 @@ async def test_cycle_cache_serves_a_closed_window(client: httpx.AsyncClient) -> 
     # The window ends at a bin that has closed, never at the present moment.
     until = datetime.fromisoformat(miss["until"])
     assert until <= datetime.now(UTC).replace(tzinfo=None), "the filling bin was included"
-    assert (until - datetime.fromisoformat(miss["since"])).total_seconds() == miss[
-        "window_seconds"
-    ]
+    assert (until - datetime.fromisoformat(miss["since"])).total_seconds() == miss["window_seconds"]
 
     # Dense, and filled server-side: a client that had to infer the axis from the bins
     # that happen to hold events would render scattered moments as consecutive ones.
@@ -225,3 +234,38 @@ async def test_cycle_cache_serves_a_closed_window(client: httpx.AsyncClient) -> 
     for entry in miss["series"]:
         assert len(entry["counts"]) == slots, "the series is not dense"
         assert sum(entry["counts"]) == entry["total"]
+
+
+async def test_the_two_kinds_of_429_are_told_apart(client: httpx.AsyncClient) -> None:
+    """Backpressure and throttling share a status code, so they must not share a story.
+
+    `app/ratelimit.py` asserts its own half of this pair. Asserting only that half would
+    leave the contract half-tested: a header the limiter sets and the ingest route
+    forgets is worse than no header, because the console would then read every queue-full
+    refusal as "you are asking too fast" and tell the operator to slow down while the
+    real problem was the worker falling behind.
+    """
+    from app.queue import QueueFull
+
+    class Full:
+        async def send(self, event: object) -> None:
+            raise QueueFull
+
+    real = client.app.state.queue
+    client.app.state.queue = Full()
+    try:
+        response = await client.post(
+            "/events",
+            json={
+                "event_type": "click",
+                "user_id": "u-1",
+                "source_url": "https://shop.example.com/p/1",
+                "metadata": {},
+            },
+        )
+    finally:
+        client.app.state.queue = real
+
+    assert response.status_code == 429
+    assert response.headers["x-throttle-reason"] == "queue_full"
+    assert response.headers["retry-after"] == "1"

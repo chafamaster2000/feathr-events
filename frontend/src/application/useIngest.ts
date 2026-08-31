@@ -59,10 +59,17 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
       const started = performance.now()
 
       // Counted by what actually happened. Reporting every failure as a 429 would send
-      // the reader looking for backpressure that is not there: a 429 means the queue is
-      // full and the system is defending itself, anything else is a fault.
+      // the reader looking for backpressure that is not there: a 429 means the system is
+      // defending itself, anything else is a fault.
+      //
+      // And two different defences answer 429, so the status alone is not the answer any
+      // more. `X-Throttle-Reason` says which: `queue_full` is the pipeline at capacity
+      // and everyone sees it; `rate_limit` is this browser alone asking faster than its
+      // share. Counting them together would have this readout blame the worker for a
+      // client-side impatience, or the reverse.
       let accepted = 0
       let refused = 0
+      let throttled = 0
       let failed = 0
       let next = 0
 
@@ -73,8 +80,9 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
             await api.ingest(randomEvent(i, marker))
             accepted += 1
           } catch (err) {
-            if (axios.isAxiosError(err) && err.response?.status === 429) refused += 1
-            else failed += 1
+            if (!axios.isAxiosError(err) || err.response?.status !== 429) failed += 1
+            else if (err.response.headers['x-throttle-reason'] === 'rate_limit') throttled += 1
+            else refused += 1
           }
         }
       }
@@ -153,7 +161,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
             },
       ])
 
-      onRun?.({ n, acceptMs, drainMs, accepted, refused, failed })
+      onRun?.({ n, acceptMs, drainMs, accepted, refused, throttled, failed })
 
       // The third hop, which a burst used to skip. It is the same question the single
       // trace asks and the same answer — Elasticsearch refreshes once a second, so being
@@ -198,7 +206,8 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           drainMs !== null
             ? `${drainMs >= 1000 ? `${(drainMs / 1000).toFixed(1)}s` : `${drainMs}ms`} end to end`
             : 'still writing',
-          refused ? `${refused} refused (429, queue full)` : null,
+          refused ? `${refused} refused (429, the queue is full)` : null,
+          throttled ? `${throttled} throttled (429, this client's rate limit)` : null,
           failed ? `${failed} failed (connection or server error)` : null,
         ]
           .filter(Boolean)

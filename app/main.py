@@ -26,6 +26,7 @@ from app.observability import AgentLoggerMiddleware
 from app.observability import log as agent_log
 from app.queries import LIVE_BIN_SECONDS, Bucket, EventQueries
 from app.queue import InMemoryEventQueue, QueueFull
+from app.ratelimit import RateLimiter, RateLimitMiddleware
 from app.stores import COLLECTION, ElasticEventIndex, MongoEventStore
 from app.worker import EventWorker
 
@@ -164,6 +165,22 @@ app = FastAPI(
 # Pure ASGI, so it does not interfere with streaming responses.
 app.add_middleware(AgentLoggerMiddleware)
 
+# Added second, therefore run FIRST: `add_middleware` builds the stack inside out, so the
+# last one registered is the outermost. That ordering is the point - a throttled request
+# is refused before it reaches anything, and a flood costs the process one dict lookup
+# rather than a full request cycle. The logger sits inside it and still records the 429,
+# so refusals appear in `.logs/agent/` like any other response.
+if settings.rate_limit_enabled:
+    app.add_middleware(
+        RateLimitMiddleware,
+        limiter=RateLimiter(
+            writes=settings.rate_limit_writes,
+            reads=settings.rate_limit_reads,
+            window_seconds=settings.rate_limit_window_seconds,
+        ),
+        trust_forwarded_for=settings.rate_limit_trust_forwarded_for,
+    )
+
 
 @app.post(
     "/events",
@@ -190,7 +207,11 @@ async def ingest(payload: EventIn, request: Request) -> EventAccepted:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="the queue is full, retry later",
-            headers={"Retry-After": "1"},
+            # Two different refusals now share this status, and a client that cannot tell
+            # them apart draws the wrong conclusion from either. `queue_full` is about the
+            # system and everyone sees it; `rate_limit` is about this caller alone. See
+            # app/ratelimit.py.
+            headers={"Retry-After": "1", "X-Throttle-Reason": "queue_full"},
         ) from None
     # The domain's own correlation id, recorded next to the transport-level one: this is
     # the id that survives every hop (queue -> worker -> MongoDB -> Elasticsearch).

@@ -42,6 +42,24 @@ class Settings(BaseSettings):
     # to arrive all at once. See ARCHITECTURE.md §3.
     stats_cache_ttl: int = 10
 
+    # --- Rate limiting ---
+    # A fairness bound, not a capacity one: `queue_maxsize` above is what defends the
+    # process. At 2,000 writes per ten seconds a single client needs 50 seconds to fill
+    # the queue on its own, and the worker drains it far faster - so reaching the bound
+    # stays a systemic condition rather than one caller's doing. See app/ratelimit.py.
+    #
+    # Reads are separate and larger. The console polls `/events` every 25ms while it
+    # traces one event through the pipeline, which is 40 legitimate requests a second
+    # from a single address; a shared bucket would have throttled the dashboard first.
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: float = 10.0
+    rate_limit_writes: int = 2_000
+    rate_limit_reads: int = 3_000
+    # Off by default and deliberately so: the header is written by the caller, so
+    # trusting it unconditionally hands every client a fresh bucket per request. Turn it
+    # on only behind a proxy that overwrites it.
+    rate_limit_trust_forwarded_for: bool = False
+
     # --- Demo ---
     # Off by default, and the destructive route is not even registered when it is off:
     # a disabled endpoint that still exists is one config mistake away from being live.

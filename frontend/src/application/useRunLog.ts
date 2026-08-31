@@ -18,7 +18,11 @@ export interface Run {
    *  the worker is finished with it — measured from the outside in both cases. */
   drainMs: number | null
   accepted: number
+  /** 429 because the queue was full: the pipeline is at capacity. */
   refused: number
+  /** 429 because this client hit its own rate limit. Optional: rows written before the
+   *  limiter existed are still valid history and are not rewritten to carry a zero. */
+  throttled?: number
   failed: number
 }
 

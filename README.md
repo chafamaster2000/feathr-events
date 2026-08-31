@@ -53,6 +53,9 @@ default in [`app/config.py`](./app/config.py). The settings worth knowing:
 | `MAX_RECEIVES` | `5` | Delivery attempts before a message is dead-lettered |
 | `QUEUE_MAXSIZE` | `10000` | Bounded on purpose. When full the API returns `429` |
 | `STATS_CACHE_TTL` | `10` | How long a superseded live summary lingers in Redis. Not a staleness ceiling: the key is the bin slot and only closed bins are returned, so a cached entry is exact for the window it describes |
+| `RATE_LIMIT_WRITES` | `2000` | Per client, per window. Sized against `QUEUE_MAXSIZE`, not guessed — see below |
+| `RATE_LIMIT_READS` | `3000` | Larger, and separate. The console legitimately polls at 40 req/s while tracing |
+| `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | Off until a proxy that overwrites the header is actually in front |
 
 ### If MongoDB will not start
 
@@ -93,7 +96,10 @@ Validates an event, assigns it an `event_id`, enqueues it, and returns immediate
 |---|---|
 | `202 Accepted` | Queued. **Not** `201` — the event is not stored yet, and the status code should not claim otherwise |
 | `422` | Validation failed. Unknown fields are rejected rather than silently dropped |
-| `429` | The queue is full. Backpressure, not an error to retry immediately |
+| `429` | Refused. Two different defences answer with this status and `X-Throttle-Reason` says which: `queue_full` is backpressure, everyone sees it; `rate_limit` is this caller alone. Both carry `Retry-After` |
+
+Every route except `/health` and the demo controls is rate limited per client, with
+separate budgets for writes and reads — see [Rate limiting](#rate-limiting) below.
 
 ### `GET /events`
 
@@ -207,6 +213,37 @@ seconds appeared to arrive all at once.
 gaps are filled server-side, because a client that draws only what comes back renders three
 scattered moments as three consecutive ones. `series` is sorted by type name rather than by
 volume, so a client assigning colour by position keeps a type's colour between polls.
+
+### Rate limiting
+
+A token bucket per client, in front of writes and reads separately. `/health` and the demo
+controls are exempt: rate limiting a liveness probe is how a busy minute becomes a restart
+loop.
+
+**The number is derived, not chosen.** `QUEUE_MAXSIZE` is 10,000; at 2,000 writes per ten
+seconds one client needs 50 seconds to fill the queue alone, and the worker drains it far
+faster. So a full queue means the *aggregate* outran the worker, never one impatient
+script — which is the only reading an operator can act on.
+
+**Two defences now answer `429`, and they say opposite things.** `X-Throttle-Reason` keeps
+them apart:
+
+| Header | Meaning | What fixes it |
+|---|---|---|
+| `queue_full` | the pipeline is at capacity, everyone sees it | waiting for the worker |
+| `rate_limit` | this caller is asking faster than its share | slowing down |
+
+Both carry `Retry-After`, and the console counts them in separate columns for exactly this
+reason. Observed on the running stack:
+
+```
+6,000 POST /events at 509 req/s  ->  4,349 x 202,  1,651 x 429 (rate_limit)
+```
+
+The console's largest burst — 500 events at 25 concurrent posts — is never throttled, and
+that is asserted as a test rather than left to a number that looks comfortable. The full
+reasoning, including why the limiter is in-process rather than in Redis, is
+[ARCHITECTURE §4b](./ARCHITECTURE.md#4b-rate-limiting).
 
 ### `GET /health`
 
