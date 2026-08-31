@@ -29,12 +29,15 @@ executing something, and the document says what.
                             │                         │   truth     │   │    index      │
                             │                         └──────┬──────┘   └───────┬───────┘
                             │                                │                  │
-   READ PATHS               │        ┌───────────┐           │                  │
-                            └────────┤   Redis   │◄──────────┘                  │
-   GET /events ─────────────────────►│   cache   │  (only /stats/realtime)      │
-   GET /events/stats ───────────────►└───────────┘                              │
-   GET /events/stats/realtime ──► Redis ──(miss)──► MongoDB aggregation          │
-   GET /events/search ─────────────────────────────────────────────────────────►┘
+   READ PATHS               │                                │                  │
+                            │                                │                  │
+                            ├──► GET /events ────────────────┤                  │
+                            ├──► GET /events/stats ──────────┘                  │
+                            │                                                   │
+                            ├──► GET /events/search ────────────────────────────┤
+                            ├──► GET /events/search/terms ──────────────────────┘
+                            │
+                            └──► GET /events/stats/realtime ──►  Redis  ──(miss)──►  the same aggregation
 ```
 
 The dashed boundary matters more than the boxes. Four containers run, but the API, the
@@ -45,8 +48,11 @@ queue and the worker share **one Python process**. The queue is not a service �
 `202 Accepted`. It never touches a database. A worker task picks the event up, writes
 MongoDB first, then Elasticsearch, then deletes the message from the queue.
 
-**Read path.** Each endpoint goes to the store that can answer it. Only one passes
-through the cache.
+**Read path.** Each endpoint goes to the store that can answer it, and **only
+`/events/stats/realtime` passes through the cache** — the other reads reach MongoDB or
+Elasticsearch directly. An earlier version of this drawing routed every read through the
+Redis box and patched it with an annotation, which is a diagram arguing against its own
+caching table in §3.
 
 ---
 
@@ -174,6 +180,27 @@ wrong:
 | `source_url` | `keyword` + `text` sub-field | Group by exact URL, and search path tokens |
 | `metadata` | `flattened` | See below |
 
+**Analyzers.** Only one field is analysed at all, and that is the choice worth explaining.
+
+`event_type` and `user_id` are `keyword`, which means *no* analyzer: the value is indexed
+whole. Running an analyzer over `pageview` would buy nothing and break the aggregations
+that group by it, and normalisation happens earlier anyway — `event_type` is lowercased at
+the HTTP edge (`models.py`), so the index never sees two spellings of one type.
+
+`source_url.text` uses the **standard** analyzer, inherited rather than configured, and it
+is worth knowing exactly what that does to a URL:
+`https://shop.example.com/product/64` becomes `https`, `shop.example.com`, `product`, `64`.
+It splits on `/` but keeps the host together, which is what makes `?q=product` find a path
+segment while `?q=shop.example.com` still finds the host. A custom analyzer — a path
+hierarchy tokenizer, say — would give prefix matching on `/a/b/c`, and it is not worth the
+mapping complexity for a search box whose real subject is `metadata`.
+
+`metadata` is `flattened`, and flattened leaves are keywords: **not analysable, by
+definition of the type**. That is the hidden cost of the mapping-explosion fix, and it is
+why search inside metadata is term-level rather than stemmed. `firefox` matches, `Firefox`
+does not, and neither does a partial word — fuzziness is what covers the gap, deliberately
+(see the search section).
+
 `metadata` is the hard field. Under dynamic mapping, arbitrary JSON creates a new field
 per new key and the cluster degrades — mapping explosion. `flattened` maps the whole
 object as a single field and indexes its leaves as keywords.
@@ -211,18 +238,67 @@ read path**, not a rounding error on top of one that was already there.
 
 The honest argument is narrower, and enough: this endpoint's contract promises a recent
 summary rather than an exact figure, so a bounded lag does not break it — and the bound is
-chosen to match what the endpoint serves. Ten seconds is the live bin. A longer ceiling
-would make the newest bins of a *live* view its least trustworthy part, which is exactly
-where the eye goes; a shorter one buys freshness with nowhere to show up.
+chosen to match what the endpoint serves.
 
-This is observable rather than asserted. Immediately after ingesting one event:
+Then the endpoint changed, and this section is worth reading as the record of that. It
+first served the same hourly aggregation as `/events/stats`, where the current hour is one
+bar that grows for sixty minutes: nothing it returned could change visibly while you
+watched it, whatever the route was called. Fine bins fixed that and broke the caching — the
+bin still filling was snapshotted at its first request, usually near-empty, and served that
+way until the key rolled, so a burst spread across seconds appeared to arrive all at once.
+
+The resolution is that **the window ends at the last closed bin**. Every bin returned has
+finished, so a cached answer is not an out-of-date view of the present: it is the exact
+answer for a window that ended. There is no staleness left to bound. The TTL now governs
+only how long a superseded key lingers before Redis drops it, which is why raising
+`STATS_CACHE_TTL` changes nothing observable — the key is the bin slot and rolls on its
+own every two seconds. The real freshness control is `LIVE_BIN_SECONDS`, and saying
+otherwise would be selling a knob that does nothing.
+
+One caveat that the word *exact* has to carry honestly: an event whose timestamp falls in a
+bin can still reach MongoDB a few milliseconds after that bin closed, worker lag being
+2-48ms. That is two orders of magnitude below the bin, and it is the only way a closed bin
+can still gain a straggler.
+
+This is observable rather than asserted:
 
 ```
-GET /events/stats            (uncached)  →  total: 202
-GET /events/stats/realtime   (cached)    →  total: 201, cached: true
+$ curl -s /events/stats/realtime | jq '{since, until, bin_seconds, cached}'
+{ "since": "…T04:05:34", "until": "…T04:10:34", "bin_seconds": 2, "cached": true }
 ```
 
-Bounded, intentional, and visible from outside.
+`until` is always in the past. That is the property, and it is checkable in one call.
+
+### Under higher write volume
+
+The brief asks what would change, and the honest answer is that **the strategy holds and
+the numbers stop being free**. Nothing above depends on the write rate: the key is a time
+slot, the value is immutable once its bin closes, and no write ever has to invalidate
+anything. That is the property worth keeping, and it is why TTL-only survives volume that
+would make precise invalidation collapse.
+
+Three things change.
+
+**The miss gets expensive.** The aggregation scans the window, so its cost grows with
+events-per-window, not with total events. At ten times the rate a miss costs ten times as
+much, and the miss rate is fixed by the bin, not by traffic — one recompute every two
+seconds regardless. The fix is not a longer TTL, which buys nothing here; it is to stop
+recomputing history that cannot change. Only the newest bin is ever new, so the natural
+next step is an incremental counter per bin, written on ingest, and a read that sums bins
+instead of scanning documents.
+
+**Stampede stops being theoretical.** One key expiring under a hundred concurrent readers
+sends a hundred identical aggregations at MongoDB. At this volume it does not matter; at
+ten times it does, and the answer is a single-flight lock or a probabilistic early
+refresh, not a bigger cache.
+
+**Redis stops being free to lose.** Today losing it costs one recompute. With counters
+written on ingest it would hold state that is expensive to rebuild, which changes its tier
+in §3's hierarchy from *disposable* to *derived* — and a rebuild path from MongoDB becomes
+mandatory, exactly as `scripts/reindex.py` is for Elasticsearch.
+
+Note what does **not** change: the contract. The endpoint promises a recent summary, so
+none of the above requires telling callers anything new.
 
 ---
 
@@ -536,9 +612,11 @@ across two thousand requests, where before the same load exhausted them.
 The instrumentation added to find problems was the problem. That is worth stating plainly
 in a document about failure modes.
 
-**A console** at `:5173`, described in the README. It consumes only the five public
+**A console** at `:5173`, described in the README. It consumes only public
 endpoints — deliberately, because a debug endpoint that exposes queue internals is exactly
-what §6's failure analysis says must not exist.
+what §6's failure analysis says must not exist. Two of them exist *because* of the
+console, `POST /demo/reset` and `GET /events/search/terms`, and the README names both:
+a UI that grows the public API surface is a real cost, and an uncounted one is worse.
 
 ## 8. What I would do differently
 

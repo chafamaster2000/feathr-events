@@ -136,6 +136,29 @@ participate in this path.**
 Because `metadata` is mapped as `flattened` to avoid mapping explosion, matching within
 it is term-level rather than analysed. The trade-off is explained in `ARCHITECTURE.md` §3.
 
+### `GET /events/search/terms`
+
+The values a search box can suggest, from a terms aggregation over the real documents.
+Nothing on screen otherwise tells a reader that `webkit-nightly` is a thing this data
+contains, and a search box over free-form metadata is unusable without that.
+
+| Parameter | Notes |
+|---|---|
+| `q` | Optional prefix. Without it, the list opens with the event types, then the most common metadata values |
+| `limit` | 1–50, default 12 |
+
+It works *because* `metadata` is `flattened`: the whole object is one field whose leaves
+are keywords, so a single terms aggregation returns leaf values across every key at once.
+A second aggregation covers `event_type`, which lives in its own field.
+
+Note the division of labour with `GET /events/search`: this is a **prefix** match and the
+search is **fuzzy**. Prefixes finish a word you are spelling correctly (`fire` →
+`firefox`, which the fuzzy search itself misses at three edits); fuzziness rescues you
+when you are not (`firefx`).
+
+The prefix reaches Elasticsearch inside a regex, so it is whitelisted rather than escaped:
+`.*` would turn a lookup into a scan and `(` into a 400. Both return an empty list.
+
 ### `GET /events/stats/realtime`
 
 A **lightweight stats summary** of recent activity, served from Redis with a configurable
@@ -150,8 +173,8 @@ roughly 22KB on an endpoint a live view polls every couple of seconds, which is 
 summary.
 
 The weight was in the row objects, not in the numbers. One dense array of integers per
-type carries the same breakdown — enough to stack the chart by type — in **1,921 bytes**
-for 150 bins across five types, measured.
+type carries the same breakdown — enough to stack the chart by type — in **1,908 bytes**
+for 150 bins across five types, captured from the response below.
 
 The window ends at the last **closed** bin; the one still filling is not returned. That is
 what makes the cached answer *exact for its window* rather than a snapshot of a bucket that
@@ -161,20 +184,24 @@ seconds appeared to arrive all at once.
 
 ```jsonc
 {
-  "since": "2026-08-31T04:05:34",
-  "until": "2026-08-31T04:10:34",
+  "since": "2026-08-31T04:48:56",
+  "until": "2026-08-31T04:53:56",
   "window_seconds": 300,
   "bin_seconds": 2,
-  "total": 1090,
+  "total": 602,
   "series": [
-    { "event_type": "add_to_cart", "total": 1176, "counts": [0, 0, 120, 480, ...] },
-    { "event_type": "click",       "total": 1200, "counts": [0, 0, 118, 502, ...] },
-    ...
+    { "event_type": "add_to_cart", "total": 120, "counts": [/* 150 ints */ 0, 0, 80, 40, 0, ...] },
+    { "event_type": "click",       "total": 120, "counts": [/* 150 ints */ 0, 0, 80, 40, 0, ...] },
+    // ... one entry per event type, sorted by name
   ],
-  "cached": true,
+  "cached": false,
   "ttl_seconds": 10
 }
 ```
+
+| Parameter | Notes |
+|---|---|
+| `event_type` | Optional. Restricts the summary to one type; the cache is keyed per type |
 
 `counts` is dense on purpose. The aggregation only finds the bins that hold events; the
 gaps are filled server-side, because a client that draws only what comes back renders three
@@ -208,7 +235,7 @@ architecture document's diagram plays, except it can be run. Every claim in
 lives in process memory, the dual write happens between two containers, the cache is stale
 by design. The console makes those three things watchable, and nothing else.
 
-It reads the **same five endpoints any client has**. There is no debug endpoint behind it,
+It reads the **same endpoints any client has**. There is no debug endpoint behind it,
 because "the harness is never an endpoint" is an invariant this system keeps
 (`CLAUDE.md`). The event trace is assembled from outside — ingest, then poll the two read
 paths until the event shows up in each — which is why the timings it reports are real.
@@ -217,17 +244,25 @@ paths until the event shows up in each — which is why the timings it reports a
 |---|---|---|
 | Queue depth | The in-memory queue filling and draining. Send a burst and watch it absorb | `GET /health` |
 | Trace one event | Accepted → in MongoDB → searchable, with real milliseconds | `POST /events`, then `GET /events` and `GET /events/search` |
-| Search | Full-text over the type, the user, `metadata` and the URL, in Elasticsearch | `GET /events/search` |
-| Cache | `/events/stats` and `/events/stats/realtime` side by side, and the drift between them | both stats endpoints |
+| Stats | History from MongoDB, and live arrivals from the cached endpoint, in two tabs | `GET /events/stats`, `GET /events/stats/realtime` |
+| Search | Type-ahead over real values, then the full result set | `GET /events/search/terms`, then `GET /events/search` |
 
 The gap the trace shows before "searchable" is Elasticsearch's one-second
-`refresh_interval`, not latency in the worker. The drift the cache panel shows is the TTL
-doing its job.
+`refresh_interval`, not latency in the worker.
 
-**One backend change was needed and it is the only one:** `POST /demo/reset` empties the
-stores so a demonstration can restart. It is registered **only** when the API runs with
-`DEMO_MODE` enabled — not disabled behind a check, absent. A destructive endpoint that
-merely tests a flag is one configuration mistake away from being live.
+**Two endpoints exist because of the console, and both are named here** — an earlier
+version of this paragraph claimed there was only one, which was wrong for long enough to
+be worth recording rather than quietly editing:
+
+- `POST /demo/reset` empties the stores so a demonstration can restart. It is registered
+  **only** when the API runs with `DEMO_MODE` enabled — not disabled behind a check,
+  absent. A destructive endpoint that merely tests a flag is one configuration mistake
+  away from being live.
+- `GET /events/search/terms` returns the values a search box can suggest, from a terms
+  aggregation over the real documents. It is a read like any other, bounded and cheap,
+  and it is documented above with the rest. But it exists because a UI needed it, and a
+  UI growing the public API surface is exactly the cost the brief's "no points for
+  frontend" note is warning about.
 
 Architecture follows the layer split the console's own stack conventions ask for:
 `domain/` (models, no React), `infrastructure/` (the HTTP client), `application/` (use
