@@ -89,7 +89,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
       //
       // Caveat worth knowing: this measures the queue reaching empty, so concurrent
       // traffic from elsewhere inflates it. It is a demonstration, not a benchmark.
-      setBusy(`draining ${accepted}`)
+      setBusy(`writing ${accepted}`)
       let drainMs: number | null = null
       let peak = 0
       let peakAt = acceptMs
@@ -126,14 +126,14 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           : []),
         drainMs !== null
           ? {
-              label: 'Drained',
-              detail: `the worker emptied the queue · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
+              label: 'All written',
+              detail: `the queue is empty — every event is in both stores · ${(drainMs / Math.max(1, accepted)).toFixed(1)}ms per event`,
               atMs: drainMs,
               state: 'done' as const,
             }
           : {
-              label: 'Still draining',
-              detail: 'gave up waiting — the queue was not empty within the timeout',
+              label: 'Still writing',
+              detail: 'gave up waiting — the queue still had events in it when the timer ran out',
               atMs: DRAIN_TIMEOUT_MS,
               state: 'failed' as const,
             },
@@ -145,7 +145,7 @@ export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) =>
           `${accepted} accepted`,
           drainMs !== null
             ? `${drainMs >= 1000 ? `${(drainMs / 1000).toFixed(1)}s` : `${drainMs}ms`} end to end`
-            : 'still draining',
+            : 'still writing',
           refused ? `${refused} refused (429 — queue full)` : null,
           failed ? `${failed} failed (connection or server error)` : null,
         ]

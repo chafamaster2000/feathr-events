@@ -34,7 +34,7 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
       <div className="runs-head">
         <h2>Measured runs</h2>
         <span className="legend">
-          <i className="sw-accept" /> accepted <i className="sw-drain" /> draining
+          <i className="sw-accept" /> the client waited <i className="sw-drain" /> still writing
         </span>
         <button className="link" onClick={onClear}>
           Clear history
@@ -61,7 +61,7 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
               <th>accepted</th>
               <th>total</th>
               <th>per event</th>
-              <th>accepted ▸ drained</th>
+              <th>waited ▸ all written</th>
             </tr>
           </thead>
           <tbody>
@@ -84,7 +84,7 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
                     <div
                       className="bar"
                       style={{ width: `${((r.drainMs ?? r.acceptMs) / scale) * 100}%` }}
-                      title={`${r.acceptMs}ms accepted, ${r.drainMs ?? '—'}ms to drain`}
+                      title={`answered in ${r.acceptMs}ms · every event written by ${r.drainMs ?? '—'}ms`}
                     >
                       <span
                         className="bar-accept"

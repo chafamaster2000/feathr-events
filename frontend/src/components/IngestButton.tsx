@@ -5,7 +5,7 @@ const AMOUNTS = [
   { n: 1, note: 'and follow it through the pipeline' },
   { n: 10, note: 'a trickle the worker absorbs instantly' },
   { n: 100, note: 'a visible bump in the backlog' },
-  { n: 500, note: 'a burst worth watching drain' },
+  { n: 500, note: 'enough to watch the queue fill and empty' },
 ]
 
 /**
