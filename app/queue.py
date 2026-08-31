@@ -106,6 +106,8 @@ class EventQueue(Protocol):
 
     async def change_visibility(self, receipt_handle: str, seconds: float) -> None: ...
 
+    async def fail(self, receipt_handle: str) -> None: ...
+
     def stats(self) -> dict[str, int]: ...
 
 
@@ -168,8 +170,22 @@ class InMemoryEventQueue:
                 continue
 
             entry.receive_count += 1
-            # The backoff is not a separate mechanism: it is this timeout, growing.
-            entry.deadline = now + min(base * 2 ** (entry.receive_count - 1), BACKOFF_CAP_SECONDS)
+            # The PROCESSING WINDOW, not the retry delay. These used to be the same number
+            # and that was a real defect: the worker heartbeats the window at the start of
+            # every delivery - it has to, or the tail of a batch inherits a clock that
+            # started nine writes ago - and the heartbeat silently overwrote the grown
+            # deadline this line used to set. Measured on the composed system, the gaps
+            # between attempts were [30, 30, 30, 30] where the document claimed
+            # [30, 60, 120, 240, 480]. The backoff was computed and then thrown away on
+            # every single delivery.
+            #
+            # So the two are now separate, which is also what §4 already said this design
+            # got wrong: "the growing timeout conflates two different things: how long a
+            # consumer is allowed to process a message, and how long to wait before trying
+            # again. A message on its fifth attempt that fails in five seconds still sits
+            # invisible for the remaining 475." It does not any more. `fail()` sets the
+            # retry delay when the outcome is known.
+            entry.deadline = now + base
             # A new handle on EVERY delivery: it invalidates the previous one.
             entry.handle = uuid.uuid4().hex
             self._inflight[entry.handle] = message_id
@@ -194,6 +210,36 @@ class InMemoryEventQueue:
         if message_id is None:
             raise ReceiptHandleIsInvalid(f"unknown or expired handle: {receipt_handle[:12]}...")
         self._entries[message_id].deadline = self._clock() + seconds
+
+    async def fail(self, receipt_handle: str) -> None:
+        """The consumer tried and could not. Hold the message for its backoff.
+
+        The number stays here, in the queue, because retry policy is the queue's and not
+        the worker's - the worker reports an outcome, it does not choose a delay. That is
+        the same boundary `delete` sits on, from the other side.
+
+        **This does not replace "a retry is the absence of a delete".** If the consumer
+        dies before reaching either verb, the message still returns when its processing
+        window lapses, and it returns *promptly* rather than after a long backoff - which
+        is right, because a crashed consumer and a failed write are different events. One
+        should be retried at once; the other should be given room.
+        """
+        message_id = self._inflight.get(receipt_handle)
+        if message_id is None:
+            raise ReceiptHandleIsInvalid(f"unknown or expired handle: {receipt_handle[:12]}...")
+        entry = self._entries[message_id]
+        entry.deadline = self._clock() + self._backoff_for(entry.receive_count)
+
+    def _backoff_for(self, receive_count: int) -> float:
+        """30, 60, 120, 240, 480 - doubling from the visibility timeout, and capped.
+
+        Anchored to the visibility timeout rather than to a constant of its own: the first
+        retry should not come back sooner than a consumer is allowed to take.
+        """
+        return min(
+            self._visibility_timeout * 2 ** (receive_count - 1),
+            BACKOFF_CAP_SECONDS,
+        )
 
     # ---- observability ------------------------------------------------------
 

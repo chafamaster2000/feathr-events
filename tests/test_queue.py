@@ -133,21 +133,74 @@ async def test_the_old_handle_becomes_invalid_after_redelivery(
 # --------------------------------------------------------------------------
 
 
-async def test_the_backoff_lengthens_invisibility_on_each_attempt(
+async def test_a_reported_failure_lengthens_the_wait_before_the_next_attempt(
     queue: InMemoryEventQueue, clock: FakeClock
 ) -> None:
-    """The backoff is not a separate mechanism: it is the visibility timeout growing."""
+    """The backoff applies when a consumer reports it could not do the work.
+
+    This test used to assert that `receive()` alone grew the invisibility, and it passed
+    for as long as the system had no working backoff at all. That is the interesting part:
+    the queue really did grow the deadline, and the worker really did heartbeat its
+    processing window at the start of every delivery, and the heartbeat overwrote the
+    growth. Each half was correct and tested; the composition was neither. The gaps
+    between real attempts were flat 30s while this file certified they doubled.
+
+    So the two are separate now, and each is asserted where it actually lives:
+    `receive()` grants a processing window, `fail()` sets the retry delay, and
+    `test_worker.py` asserts what the two produce together.
+    """
     await queue.send(make_event())
 
-    await queue.receive()  # attempt 1 -> invisible for 30s
-    clock.advance(31)
-    await queue.receive()  # attempt 2 -> invisible for 60s
+    message = (await queue.receive())[0]  # attempt 1 -> a 30s window to work in
+    await queue.fail(message.receipt_handle)  # tried, could not -> back off 30s
 
-    clock.advance(31)  # enough for the first timeout, not for the second
+    clock.advance(31)
+    message = (await queue.receive())[0]  # attempt 2
+    await queue.fail(message.receipt_handle)  # -> back off 60s
+
+    clock.advance(31)  # enough for the first backoff, not for the second
     assert await queue.receive() == []
 
     clock.advance(31)  # now it is
     assert len(await queue.receive()) == 1
+
+
+async def test_the_window_a_consumer_gets_is_not_the_wait_after_it_fails(
+    clock: FakeClock,
+) -> None:
+    """The conflation ARCHITECTURE 4 named as a weakness, now absent.
+
+    "A message on its fifth attempt that fails in five seconds still sits invisible for
+    the remaining 475." It does not: the window a consumer is granted and the delay it
+    earns by failing are different numbers, decided at different moments.
+    """
+    queue = InMemoryEventQueue(visibility_timeout=30.0, max_receives=9, clock=clock)
+    await queue.send(make_event())
+
+    for _ in range(3):  # get the delivery count up, so the backoff is well past 30s
+        message = (await queue.receive())[0]
+        await queue.fail(message.receipt_handle)
+        clock.advance(500)
+
+    # A fourth delivery. Its window is still 30s, however long its backoff has grown.
+    await queue.receive()
+    clock.advance(31)
+    assert len(await queue.receive()) == 1, "the granted window grew with the backoff"
+
+
+async def test_failing_with_a_stale_handle_is_refused(queue: InMemoryEventQueue) -> None:
+    """Same rule as `delete`: the handle belongs to the delivery, not to the message.
+
+    Without it a consumer reviving after its window lapsed would push back the deadline
+    of a delivery that now belongs to somebody else.
+    """
+    await queue.send(make_event())
+    first = (await queue.receive())[0]
+    await queue.change_visibility(first.receipt_handle, 0.0)
+    await queue.receive()  # redelivered: `first`'s handle is now stale
+
+    with pytest.raises(ReceiptHandleIsInvalid):
+        await queue.fail(first.receipt_handle)
 
 
 async def test_exhausting_the_attempts_routes_it_to_the_dead_letter_queue(

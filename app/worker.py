@@ -11,14 +11,20 @@ Order matters. Reversed, a failure would leave a searchable document that does n
 exist: a phantom result, worse than a missing one.
 
 And there is no `except` that retries. If either write fails, the function simply never
-reaches the `delete` — the message comes back on its own when its visibility timeout
-lapses, with the counter incremented. **A retry is the absence of a delete.**
-See ARCHITECTURE.md §4 and §6.
+reaches the `delete` — the message comes back on its own, with the counter incremented.
+**A retry is the absence of a delete.**
+
+It does tell the queue the attempt failed, so the backoff applies. That is reporting an
+outcome, not choosing a policy: the delay is computed in `queue.py` and this module never
+sees the number. Without that call the heartbeat below leaves a flat window and the
+backoff never happens at all — which is what it did, silently, until it was measured on
+the composed system. See ARCHITECTURE.md §4 and §6.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -300,6 +306,23 @@ class EventWorker:
             # start when work on it starts. The port defined this verb and nothing outside
             # a test ever called it.
             await self._queue.change_visibility(message.receipt_handle, self._visibility)
+        except ReceiptHandleIsInvalid:
+            # The window lapsed before this message's turn came and someone else has it
+            # now. That is a queue-side fact and it says nothing at all about the stores -
+            # which is exactly how the `delete` below has always read it. Reading it the
+            # other way, as the generic handler used to, fed the circuit three "sink
+            # failures" that never touched a sink: a slow-but-alive dependency expiring a
+            # few batch tails would pause all eight consumers and turn a latency blip into
+            # a self-inflicted stall.
+            log.info(
+                "worker-%d: %s expired before its turn and was redelivered "
+                "(the batch is larger than the visibility timeout affords)",
+                worker_id,
+                event.event_id,
+            )
+            return
+
+        try:
             # MongoDB FIRST, always.
             await self._store.upsert(event)
             await self._index.index(event)
@@ -311,12 +334,18 @@ class EventWorker:
             self._failed += 1
             self._sink.record_failure(event.event_id)
             log.warning(
-                "worker-%d: failed processing %s (attempt %d) - it will return by timeout",
+                "worker-%d: failed processing %s (attempt %d) - it will return after its backoff",
                 worker_id,
                 event.event_id,
                 message.receive_count,
                 exc_info=True,
             )
+            # Report the outcome; the queue owns the delay. Not a retry - nothing here
+            # tries again, and the `delete` is still the only thing that ends a message.
+            # This only says *when* it should come back, and without it the heartbeat
+            # above leaves a flat window and the backoff never happens at all.
+            with contextlib.suppress(ReceiptHandleIsInvalid):
+                await self._queue.fail(message.receipt_handle)
             return  # no delete: the message comes back on its own
 
         try:

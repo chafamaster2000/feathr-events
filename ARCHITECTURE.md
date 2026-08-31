@@ -61,7 +61,7 @@ caching table in §3.
 | Component | Owns | Explicitly does *not* own |
 |---|---|---|
 | **FastAPI layer** | Validation, `event_id` assignment, enqueueing, backpressure (`429`) | Any database write. It cannot corrupt state because it never writes state |
-| **EventQueue** | Delivery semantics: visibility timeout, delivery counting, backoff, dead-letter routing | Business logic. It moves opaque events |
+| **EventQueue** | Delivery semantics: visibility timeout, delivery counting, backoff, dead-letter routing. It owns the retry *policy*; the worker only reports outcomes to it (§4) | Business logic. It moves opaque events |
 | **Worker** | Two writes, in order, then the ack | Retry logic. There is no `except` that retries — see §4 |
 | **MongoDB** | The source of truth. Filters and aggregations | Full-text search |
 | **Elasticsearch** | Full-text over the type, the user, `metadata` and the URL. A derived index | Being authoritative. It can be rebuilt from MongoDB at any time |
@@ -341,32 +341,67 @@ logic in the worker — all of it lives in the queue.
 | Ordering | **None** | See §5 — the system does not need it |
 | Durability | **None. At-most-once across a restart** | The queue is process memory. This is the honest cost of "in-process" |
 
-### Backoff and the dead-letter queue are the same mechanism
+### Backoff, and the mechanism it used to be fused to
 
-The assignment requires retries with backoff. Rather than building a second mechanism,
-the visibility timeout *grows*:
+The assignment requires retries with backoff. The first design had no separate mechanism
+for it: the visibility timeout simply *grew* on each delivery, so one mechanism covered
+retries, backoff and the DLQ.
 
-```python
-delay = min(base * 2 ** (receive_count - 1), CAP)
+**That design did not survive contact with its own worker, and the failure was silent.**
+The worker heartbeats its processing window at the start of every delivery — it has to,
+because `receive` stamps one deadline across a whole batch and the batch is processed
+serially, so the tenth message inherits a clock that started nine writes ago. That
+heartbeat overwrote the grown deadline the queue had just computed. Every delivery. The
+backoff was calculated and thrown away, and the retries came at a flat 30 seconds.
+
+Nothing caught it. `test_queue.py` asserted the backoff and passed; `test_queue.py`
+asserted the heartbeat and passed; no test ran a real worker against a real queue, which
+is the only place the two meet. The document said the retry budget was 930 seconds. It was
+150.
+
+```
+measured, composed, before:  gaps [30, 30, 30, 30]     dead-letter at 150s
+measured, composed, after:   gaps [30, 60, 120, 240]   dead-letter at 930s
 ```
 
-A failing message becomes invisible for longer on each attempt until `receive_count`
-exceeds the maximum, at which point it is routed to the dead-letter queue instead of back
-to visible. One mechanism covers retries, backoff and the DLQ. **That is not how SQS does it**, and
-the difference matters for the migration story in this same section.
+So the two are separate now, and the separation is the fix:
 
-SQS's visibility timeout does not grow with the receive count: it is fixed per queue or
-per message, and a consumer that wants backoff calls `ChangeMessageVisibility` itself. The
-redrive policy gives `maxReceiveCount` → DLQ, so half of this mechanism transfers and half
-does not. A real `SQSEventQueue` adapter cannot reproduce the growing timeout server-side,
-so the backoff would have to move into the worker — the exact layer this design forbids
-from holding retry logic. The port speaks SQS's vocabulary faithfully; on this one point
-it does not speak its semantics, and "the application changes in exactly one place" is
-true of everything except this.
+| | Set by | Means | Value |
+|---|---|---|---|
+| **Processing window** | `receive`, refreshed by `change_visibility` | how long this consumer may take | flat `visibility_timeout` |
+| **Retry delay** | `fail`, when the outcome is known | how long before anyone tries again | doubling, capped |
 
-The growing timeout also conflates two different things: how long a consumer is allowed to
-process a message, and how long to wait before trying again. A message on its fifth
-attempt that fails in five seconds still sits invisible for the remaining 475.
+`fail(receipt_handle)` is the verb the port was missing. The worker calls it when a write
+did not land — reporting an outcome, not choosing a policy: the number stays in the queue,
+where retry belongs. **It does not replace "a retry is the absence of a delete."** If a
+consumer dies before reaching either verb, the message still returns when its window
+lapses — and returns *promptly* rather than after a long backoff, which is right, because
+a crashed consumer and a failed write are different events. One should be retried at once.
+The other should be given room.
+
+Separating them also removes a weakness this section used to name and accept: the growing
+timeout conflated how long a consumer is allowed to work with how long to wait before
+trying again, so a message on its fifth attempt that failed in five seconds sat invisible
+for the remaining 475. It no longer does.
+
+### What this changed about the SQS migration — for the better
+
+The previous version of this section conceded a defect in the port. SQS's visibility
+timeout does not grow with the receive count: it is fixed per queue or per message, and a
+consumer that wants backoff calls `ChangeMessageVisibility` itself. So a real
+`SQSEventQueue` could not reproduce a server-side growing timeout, and the backoff would
+have had to move into the worker — the exact layer this design forbids from holding retry
+logic. "The application changes in exactly one place" was true of everything except this.
+
+It is now true of this too. `fail()` is precisely `ChangeMessageVisibility(handle, delay)`,
+which is exactly how a real SQS consumer does backoff, and the adapter keeps the delay
+computation on its own side of the port. The redrive policy already gave `maxReceiveCount`
+→ DLQ. Both halves transfer.
+
+Being honest about where that came from: the port did not become SQS-faithful because it
+was designed well. It became SQS-faithful because the design that was *not* SQS-faithful
+turned out not to work, and the shape that fixed it is the shape SQS has for the same
+reason.
 
 And `maxReceiveCount` answers "how many deliveries" when the question an operator cares
 about is "was this message the problem". The queue cannot separate those; the consumer
@@ -606,7 +641,7 @@ can see.
 
 | Component down | Ingestion | Reads | Data loss? | Recovery |
 |---|---|---|---|---|
-| **MongoDB** | Accepts | Degraded | No, if it returns in time | The worker never reaches its `delete`; the message returns by timeout with growing backoff. After three distinct events fail in a row the worker stops pulling, so the backlog waits instead of spending delivery attempts. The queue grows, and `/health` says the worker is paused |
+| **MongoDB** | Accepts | Degraded | No, if it returns in time | The worker never reaches its `delete`; the message returns after its backoff, which grows. After three distinct events fail in a row the worker stops pulling, so the backlog waits instead of spending delivery attempts. The queue grows, and `/health` says the worker is paused |
 | **Elasticsearch** | Accepts | No search | **No** | MongoDB holds everything. Full reindex from the source of truth |
 | **Redis** | Accepts | Slower | No | Automatic. Every request hits the origin and the cache refills. This is why it runs without persistence |
 | **Worker** | Accepts | Stale data | **Yes — everything queued** | The queue is process memory |
@@ -710,17 +745,21 @@ The assignment never mentions this, which is why it deserves an explicit answer.
 **Order is fixed: MongoDB first, always.** Reversed, a failure would leave a searchable
 document that does not exist — a phantom result, worse than a missing one.
 
-**The resolution costs zero extra code.** The worker does not catch to retry; on failure
-it simply never reaches the `delete`, so the message returns by timeout and the whole
-unit is retried. Re-writing MongoDB is harmless *only because* the upsert is idempotent —
-the two decisions hold each other up.
+**The resolution costs almost no extra code.** The worker does not catch to retry; on
+failure it never reaches the `delete`, so the whole unit returns and is retried. It does
+report the failure to the queue so the backoff applies (§4), but it neither decides when
+to come back nor tries again itself. Re-writing MongoDB is harmless *only because* the
+upsert is idempotent — the two decisions hold each other up.
 
 The known limit, stated rather than hidden: between the failure and the retry, MongoDB
 holds an event Elasticsearch cannot find.
 
 That window is **not** bounded by the visibility timeout, which an earlier version of this
 paragraph claimed. It is bounded by the backoff, which grows: 30s, 60s, 120s, 240s, 480s
-with the defaults, so the last gap is sixteen times the first. And two cases are not
+with the defaults, so the last gap is sixteen times the first. That sentence was also
+false for a while, for a different reason — the backoff was not growing at all, see §4 —
+and the gaps above are now measured on the composed system rather than read off the
+formula. And two cases are not
 bounded at all — if the retries are exhausted the message dead-letters and the divergence
 is permanent until somebody runs `scripts/reindex.py`; if the process dies between the two
 writes, the message goes with the queue and no retry ever happens.

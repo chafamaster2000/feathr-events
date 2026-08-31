@@ -378,3 +378,87 @@ async def test_the_pause_is_reported_so_a_stalled_worker_is_not_read_as_an_idle_
         assert worker.stats()["resumes_in"] > 0
     finally:
         await worker.stop()
+
+
+# --- the composition ---------------------------------------------------------------------
+#
+# The defect this covers was invisible to every test in the suite, because each half was
+# correct on its own. `test_queue.py` asserted the backoff; `test_queue.py` asserted the
+# heartbeat; nothing asserted what the two do when a real worker drives a real queue. The
+# heartbeat ran first on every delivery and overwrote the deadline the backoff had just
+# set, so the shipped system retried at a flat interval while the document claimed - and
+# the tests certified - that it doubled.
+
+
+async def test_the_gaps_between_attempts_actually_double(clock: FakeClock) -> None:
+    """Composed, because that is the only place this can be seen.
+
+    Measured before the fix: [30, 30, 30, 30]. The document said [30, 60, 120, 240, 480]
+    and put a 930-second retry budget on it; the real budget was 150.
+
+    One event, and the circuit turned off by a threshold it cannot reach. That is not
+    dodging the interaction - it is isolating this one. `SinkCircuit` needs three distinct
+    events to act at all, so with one event it is already inert; the explicit threshold
+    says so rather than relying on the reader knowing it.
+    """
+    queue = InMemoryEventQueue(visibility_timeout=30.0, max_receives=5, clock=clock)
+    await queue.send(make_event())
+    worker = EventWorker(
+        queue,
+        FakeStore(failing=True),
+        FakeIndex(),
+        concurrency=1,
+        poll_interval=0.004,
+        visibility_timeout=30.0,
+        circuit=SinkCircuit(threshold=10**9, clock=clock),
+    )
+
+    start, attempts, seen = clock._t, [], 0
+    await worker.start()
+    try:
+        for _ in range(1200):
+            await asyncio.sleep(0.004)
+            entries = list(queue._entries.values())
+            if not entries:
+                break
+            if entries[0].receive_count > seen:
+                seen = entries[0].receive_count
+                attempts.append(round(clock._t - start))
+            clock.advance(2.0)
+    finally:
+        await worker.stop()
+
+    gaps = [attempts[i + 1] - attempts[i] for i in range(len(attempts) - 1)]
+    # Within the 2s granularity of the loop that drives the clock above.
+    assert [round(g / 10) * 10 for g in gaps] == [30, 60, 120, 240]
+    assert queue.stats()["dlq"] == 1
+
+
+async def test_a_message_redelivered_mid_batch_is_not_blamed_on_the_stores(
+    clock: FakeClock,
+) -> None:
+    """A queue-side fact must not be read as a sink-side one.
+
+    When a batch is larger than its visibility window affords, the tail expires before its
+    turn and is redelivered. The heartbeat then fails with a stale handle - and the generic
+    handler used to count that as a store failure, feeding the circuit evidence of an
+    outage that never happened. Three of them and all eight consumers pause with perfectly
+    healthy stores: a latency blip turned into a self-inflicted stall.
+    """
+    queue = InMemoryEventQueue(visibility_timeout=30.0, max_receives=5, clock=clock)
+    store, index = FakeStore(), FakeIndex()
+    for i in range(3):
+        await queue.send(make_event(f"u{i}"))
+
+    stale = await queue.receive(max_n=3)  # one consumer holds all three
+    clock.advance(31)  # their window lapses before any is processed
+    await queue.receive(max_n=3)  # another consumer takes them: the handles above die
+
+    circuit = SinkCircuit(clock=clock)
+    worker = EventWorker(queue, store, index, concurrency=1, circuit=circuit)
+    for message in stale:
+        await worker._handle(message, 0)
+
+    assert store.writes == 0, "no store was reached, so no store can have failed"
+    assert worker.stats()["failed_attempts"] == 0
+    assert circuit.is_open is False, "the circuit opened with healthy stores"
