@@ -214,3 +214,11 @@ tr:last-child td { border-bottom: none; }
 .chip em { font-style: normal; font-family: ui-monospace, monospace; font-size: .72rem;
   color: var(--muted); }
 .chip:hover em { color: var(--navy); }
+
+/* ---- pipeline diagram ---- */
+.diagram { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.diagram svg { min-width: 700px; }
+.diagram svg g[role='button']:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.owns { background: var(--surface-2); border-radius: 12px; padding: 14px 18px; margin-top: 12px;
+  font-size: .92rem; line-height: 1.6; color: var(--ink-2); overflow: hidden; }
+.owns strong { color: var(--navy); }

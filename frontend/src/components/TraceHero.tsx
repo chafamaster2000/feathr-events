@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTrace } from '../application/useTrace'
+import type { Health } from '../domain/types'
+import PipelineDiagram from './PipelineDiagram'
 
 /**
  * The primary action: put one event in and watch where it goes.
@@ -12,7 +14,7 @@ import { useTrace } from '../application/useTrace'
  * No debug endpoint is involved. The trace is assembled from outside, by polling the same
  * reads any client has, which is why the timings are real.
  */
-export default function TraceHero() {
+export default function TraceHero({ health }: { health: Health | null }) {
   const { steps, running, eventId, run } = useTrace()
 
   return (
@@ -31,6 +33,8 @@ export default function TraceHero() {
           {running ? 'Tracing…' : 'Ingest and follow'}
         </button>
       </div>
+
+      <PipelineDiagram health={health} steps={steps} running={running} />
 
       <div className="trail" data-empty={steps.length === 0}>
         {steps.length === 0 && !running && (

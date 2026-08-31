@@ -53,7 +53,7 @@ export default function Dashboard() {
       )}
 
       <div className="grid">
-        <TraceHero />
+        <TraceHero health={health} />
         <StatusBar health={health} />
         <DepthChart history={history} queue={health?.queue} />
         <LoadControls onDone={() => setRefreshKey((k) => k + 1)} />
