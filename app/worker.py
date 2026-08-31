@@ -89,6 +89,21 @@ class EventWorker:
 
     # ---- observability ------------------------------------------------------
 
+    def reset_counters(self) -> None:
+        """Zero the lifetime counters. Demo affordance only.
+
+        In production these should be monotonic and never reset from the outside: a
+        counter that can go down breaks every rate calculation built on top of it, which
+        is why Prometheus-style counters only increase and consumers derive rates from
+        differences. The demo reset is the one context where "start from a clean slate"
+        is the whole point, and it exists only when DEMO_MODE is on.
+
+        Deliberately not part of any interface the application depends on - the API
+        reaches for it by name from the one route that is allowed to.
+        """
+        self._processed = 0
+        self._failed = 0
+
     def stats(self) -> dict[str, int]:
         return {
             "processed": self._processed,

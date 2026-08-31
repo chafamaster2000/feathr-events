@@ -269,8 +269,12 @@ if settings.demo_mode:
         before = {
             "mongo": await state.clients.db[COLLECTION].count_documents({}),
             "queue": state.queue.stats(),
+            "worker": state.worker.stats(),
         }
         state.queue.clear()
+        # Otherwise the console shows empty stores next to a worker claiming it processed
+        # thousands of events - two true statements that together read as a bug.
+        state.worker.reset_counters()
         await state.clients.db[COLLECTION].drop()
         await state.clients.elasticsearch.options(ignore_status=404).indices.delete(
             index=settings.elasticsearch_index
