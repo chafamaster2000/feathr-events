@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-visual-evidence",
+  "version": "0.1.1",
+  "description": "The studio-wide contract for screenshot-based verification (web, mobile, Unity): eyes subagent (Haiku default) analyzes every capture visually and returns descriptions; unified .logs/evidence/ home + evidence-report.json schema; PR evidence as description + image via the agent-evidence branch.",
+  "private": true
+}

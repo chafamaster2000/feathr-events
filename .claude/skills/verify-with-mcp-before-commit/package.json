@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-verify-with-mcp-before-commit",
+  "version": "0.2.0",
+  "description": "Use AFTER any UI/UX change and BEFORE git commit. The main agent drives Playwright (admin/web) or Maestro/mobile-mcp (Expo) via text interfaces and dispatches the eyes subagent at checkpoints to capture + describe (visual-evidence contract); evidence in .logs/evidence/<date>/<task-id>/; refuses to commit if MCP can't reach the running app.",
+  "private": true
+}

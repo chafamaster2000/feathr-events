@@ -49,8 +49,8 @@ default in [`app/config.py`](./app/config.py). The settings worth knowing:
 | Setting | Default | Why it is that |
 |---|---|---|
 | `WORKER_CONCURRENCY` | `8` | The work is I/O-bound. The ceiling is downstream: pymongo's pool is 100 |
-| `VISIBILITY_TIMEOUT` | `30.0` | How long a message stays invisible while a consumer holds it |
-| `MAX_RECEIVES` | `5` | Delivery attempts before a message is dead-lettered |
+| `VISIBILITY_TIMEOUT` | `30.0` | The **processing window**: how long a consumer may hold a message. It also anchors the retry backoff, which doubles from it |
+| `MAX_RECEIVES` | `5` | Delivery attempts before a message is dead-lettered. With the backoff above that is a 930-second budget: 30 + 60 + 120 + 240 + 480 |
 | `QUEUE_MAXSIZE` | `10000` | Bounded on purpose. When full the API returns `429` |
 | `STATS_CACHE_TTL` | `10` | How long a superseded live summary lingers in Redis. Not a staleness ceiling: the key is the bin slot and only closed bins are returned, so a cached entry is exact for the window it describes |
 | `RATE_LIMIT_WRITES` | `2000` | Per client, per window. Sized against `QUEUE_MAXSIZE`, not guessed — see below |
@@ -391,10 +391,18 @@ slow, then flaky, then disabled.
 Protocols, which is what makes it possible to test what happens when Elasticsearch fails
 without stopping a container. Testability drove that boundary; it was not a side effect.
 
-**Error paths get the same attention as the happy path.** Of the 17 unit tests, most
+**Error paths get the same attention as the happy path.** Of the 64 unit tests, most
 assert what happens when something goes wrong: the worker that dies without
 acknowledging, the stale receipt handle that must be rejected, the event that exhausts
 its retries and lands in the dead-letter queue, the full queue that must refuse work.
+
+**And some of them compose two units, because that is where a defect hid.** The queue's
+backoff had a passing test and the worker's heartbeat had a passing test, while the
+heartbeat overwrote the backoff on every delivery and the shipped system retried at a flat
+interval. Two correct halves and a broken composition, certified green. `test_worker.py`
+now drives a real queue with a real worker and asserts the gaps between attempts actually
+double — and that test was watched failing before it was kept, which is the only thing
+that makes a regression test worth having.
 The happy path is one test; the ways it can fail are the rest.
 
 **Each integration cycle covers a different evaluation surface**, rather than four
@@ -406,11 +414,18 @@ variations of one path:
 | 2 | ingest → worker → `GET /events/search` | The Elasticsearch path |
 | 3 | ingest → **Elasticsearch fails** → retry → both stores | The dual write and its recovery |
 | 4 | aggregation → Redis → bounded lag | The cache, and the staleness it buys |
+| 5 | queue full vs rate limited | Two refusals that share `429` and must not share a story |
+| 6 | post a URL → filter by exactly that URL | A round-trip that silently returned nothing |
+| 7 | Redis refused → every endpoint still answers | Why `degraded` is a `200` |
+| 8 | index deleted → worker writes → mapping checked | That a dynamic mapping cannot creep back in |
 
 Cycle 3 is the one worth reading. It asserts that the divergence is real (MongoDB has the
 event, Elasticsearch does not), that nobody re-enqueues anything, and that after recovery
 exactly **one** document exists — proving the retry is safe only because the upsert is
 idempotent.
+
+Cycles 5 to 8 exist because each one is a defect that shipped. They were written after the
+fact, and each was watched failing before it was kept.
 
 **One trap worth naming.** Elasticsearch's `refresh_interval` defaults to one second, so
 a document is indexed but not yet searchable the moment the worker returns. A test that
@@ -454,6 +469,11 @@ flowchart LR
     H -. "fails" .-> D
     I -. "a finding, reproduced first" .-> D
 ```
+
+The gates are in the repository, not just described here: `.claude/skills/` holds the
+rules and `.claude/agents/` the reviewers, so every claim in this section can be read
+rather than taken on trust. They were ignored by `.gitignore` until a panel would have had
+no way to check any of it.
 
 Each gate exists because of a specific failure. **Context7:** the async MongoDB driver is
 `pymongo`, not the `motor` a decade of tutorials name — deprecated 2026-05-14. **Logs:**
@@ -523,21 +543,29 @@ concerns. They are:
 app/
   models.py      the event; event_id is stamped here, at the HTTP boundary
   queue.py       the port and its in-memory adapter (SQS semantics)
-  worker.py      consumes and writes. No retry logic — it lives in the queue
+  worker.py      consumes and writes. No retry logic — it reports outcomes; the queue decides
   stores.py      writes: MongoDB (truth) and Elasticsearch (derived index)
   queries.py     reads. Deliberately not merged with stores.py
   cache.py       Redis, in front of one endpoint
+  ratelimit.py   a token bucket per client, in front of writes and reads separately
+  faults.py      the fault registry behind /demo/fault. Inert unless DEMO_MODE
+  observability.py  NDJSON request logs, correlated by task id
   main.py        composition root and HTTP surface
   clients.py     connection lifecycle for all three datastores
   config.py      settings
 
 tests/
+  test_models.py       validation at the edge, and the startup guards
   test_queue.py        the state machine, with an injected clock
-  test_worker.py       failure paths, with doubles
-  test_integration.py  four full lifecycles against the real stack
+  test_worker.py       failure paths with doubles, plus the queue-and-worker composition
+  test_ratelimit.py    the bucket arithmetic, and the console's own polling rate
+  test_faults.py       that the injected failures behave like the real ones
+  test_integration.py  eight lifecycles against the real stack
 
 scripts/
   logcheck.py    development harness — normalises the four container log formats
+  reindex.py     rebuild Elasticsearch from MongoDB, the source of truth
+  seed.py        generate events for a populated console
 ```
 
 `stores.py` and `queries.py` are not merged because they change for different reasons:

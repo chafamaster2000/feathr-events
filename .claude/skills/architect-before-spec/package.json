@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-architect-before-spec",
+  "version": "0.2.0",
+  "description": "The docs-contract gate. Use BEFORE invoking to-prd / to-issues / implement (the mattpocock spec flow), BEFORE writing requirements or specs for any feature, and BEFORE proposing architectural changes. Checks the minimum docs contract at the project root (docs/architecture.md + design.md + references/ + adr/) — scaffolds it in greenfield, derives to respec in brownfield, and blocks the spec flow while the contract is missing.",
+  "private": true
+}

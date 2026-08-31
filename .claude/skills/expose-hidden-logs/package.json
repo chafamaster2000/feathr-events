@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-expose-hidden-logs",
+  "version": "0.2.0",
+  "description": "Use when starting work in a stack that does not yet write to .logs/agent/. Applies the appropriate snippet (NestJS, Next.js, Expo, FastAPI, Unity) to wire structured NDJSON logging with correlation id, verifies .gitignore covers .logs/, and confirms a first log line appears.",
+  "private": true
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-use-context7-first",
+  "version": "0.1.0",
+  "description": "Use BEFORE reading docs of, importing, upgrading, or debugging ANY third-party library. Resolves the library id via Context7 MCP, fetches up-to-date docs, and cites the version consulted. Blocks the work if Context7 is unreachable instead of guessing from training data.",
+  "private": true
+}

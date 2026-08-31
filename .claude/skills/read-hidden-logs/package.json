@@ -1,0 +1,6 @@
+{
+  "name": "@odaclick/skill-read-hidden-logs",
+  "version": "0.2.0",
+  "description": "The universal LOGS-READ gate — any stack, any workflow. Use BEFORE declaring any task complete or pushing code. Tails .logs/agent/<task-id>*.log, filters warnings/errors with jq, summarizes them in the task's verification record, and emits the mandatory closing marker \"LOGS-READ: <task-id>\".",
+  "private": true
+}
