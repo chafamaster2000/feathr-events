@@ -102,9 +102,7 @@ class EventIn(BaseModel):
         """
         size = len(json.dumps(v, default=str))
         if size > MAX_METADATA_BYTES:
-            raise ValueError(
-                f"metadata is {size} bytes, over the {MAX_METADATA_BYTES}-byte limit"
-            )
+            raise ValueError(f"metadata is {size} bytes, over the {MAX_METADATA_BYTES}-byte limit")
         return v
 
     @field_validator("event_type")
