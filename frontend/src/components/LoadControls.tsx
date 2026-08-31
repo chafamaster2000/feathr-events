@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useState } from 'react'
 import { api, type NewEvent } from '../infrastructure/api'
 
@@ -33,17 +34,42 @@ export default function LoadControls({ onDone }: { onDone?: () => void }) {
   const burst = async (n: number) => {
     setBusy(`sending ${n}`)
     const started = performance.now()
-    let rejected = 0
-    await Promise.all(
-      Array.from({ length: n }, (_, i) =>
-        api.ingest(randomEvent(i)).catch(() => {
-          rejected += 1 // a 429 is backpressure working, not a bug
-        }),
-      ),
-    )
+
+    // Counted by what actually happened. An earlier version reported every failure as
+    // "refused (429)", which was a lie: the failures were dropped connections, and the
+    // label sent the reader looking for backpressure that was not there. A 429 means the
+    // queue is full and the system is protecting itself; anything else is a fault.
+    let accepted = 0
+    let refused = 0
+    let failed = 0
+
+    // Bounded, because a browser firing N requests at once is not how a producer behaves
+    // and the resulting connection storm measures the client, not the pipeline.
+    const CONCURRENCY = 25
+    let next = 0
+    const worker = async () => {
+      while (next < n) {
+        const i = next++
+        try {
+          await api.ingest(randomEvent(i))
+          accepted += 1
+        } catch (err) {
+          if (axios.isAxiosError(err) && err.response?.status === 429) refused += 1
+          else failed += 1
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, n) }, worker))
+
+    const ms = Math.round(performance.now() - started)
     setLast(
-      `${n - rejected} accepted${rejected ? `, ${rejected} refused (429)` : ''} in ` +
-        `${Math.round(performance.now() - started)}ms`,
+      [
+        `${accepted} accepted`,
+        refused ? `${refused} refused (429 — queue full)` : null,
+        failed ? `${failed} failed (connection or server error)` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') + ` in ${ms}ms`,
     )
     setBusy(null)
     onDone?.()

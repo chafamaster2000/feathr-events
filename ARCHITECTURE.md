@@ -505,6 +505,20 @@ programming for its own sake: the first time the sink was wired onto a bind moun
 uid mismatch, every response became a `500`. Observability that can take the system down
 is worse than none, and the same principle already governs the cache.
 
+The sharper version of the same lesson came from a bug in this file. A generated
+per-request id is not a task, but the first implementation gave each one its own log file
+and cached the handler forever — one open file descriptor per request, never released.
+The container's limit is 1024, so after roughly a thousand requests the process could no
+longer accept connections at all. It presented as random `502`s from the dev proxy, as
+dropped connections when talking to the API directly, and as an intermittently failing
+test: symptoms spread across three layers, none of which was the cause. Generated ids now
+share one sink, only an explicit `x-agent-task-id` earns a file of its own, and the map of
+sinks is bounded and closes what it evicts. Verified: file descriptors held steady at ten
+across two thousand requests, where before the same load exhausted them.
+
+The instrumentation added to find problems was the problem. That is worth stating plainly
+in a document about failure modes.
+
 **A console** at `:5173`, described in the README. It consumes only the five public
 endpoints — deliberately, because a debug endpoint that exposes queue internals is exactly
 what §6's failure analysis says must not exist.

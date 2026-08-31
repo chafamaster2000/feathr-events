@@ -28,6 +28,7 @@ import logging
 import time
 import traceback
 import uuid
+from collections import OrderedDict
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
@@ -38,8 +39,21 @@ from urllib.parse import parse_qs
 LOG_ROOT = Path.cwd() / ".logs" / "agent"
 REDACTED_HEADERS = {"authorization", "cookie", "x-api-key"}
 
+# A generated per-request id is not a task: it identifies one request, and giving each
+# one its own file means one open file handle per request, held forever. That is a file
+# descriptor leak, and it is not theoretical - it exhausted the container's 1024 handle
+# limit after roughly a thousand requests, at which point the process could no longer
+# accept connections at all. Every 502 and dropped connection chased during development
+# traced back to here. Generated ids share one sink; only an explicit x-agent-task-id
+# earns a file of its own, which is the entire point of naming a task.
+SHARED_SINK = "requests"
+GENERATED_PREFIX = "req-"
+# And even named sinks are bounded, so a caller sending a fresh header per request cannot
+# reproduce the leak from outside.
+MAX_SINKS = 32
+
 _task_id: ContextVar[str] = ContextVar("agent_task_id", default="")
-_loggers: dict[str, logging.Logger | None] = {}
+_loggers: OrderedDict[str, logging.Logger | None] = OrderedDict()
 
 
 class NdjsonFormatter(logging.Formatter):
@@ -66,8 +80,18 @@ def _logger_for(task_id: str) -> logging.Logger | None:
     `app/cache.py`, and it is not hypothetical - a permission error on the mounted
     .logs volume turned every response into a 500 the first time this was wired.
     """
-    if task_id in _loggers:
-        return _loggers[task_id]
+    sink = SHARED_SINK if task_id.startswith(GENERATED_PREFIX) else task_id
+    if sink in _loggers:
+        _loggers.move_to_end(sink)
+        return _loggers[sink]
+
+    # Close the least recently used sink rather than letting the map grow.
+    while len(_loggers) >= MAX_SINKS:
+        _, evicted = _loggers.popitem(last=False)
+        if evicted is not None:
+            for handler in evicted.handlers[:]:
+                handler.close()
+                evicted.removeHandler(handler)
     try:
         day_dir = LOG_ROOT / datetime.now(UTC).strftime("%Y-%m-%d")
         day_dir.mkdir(parents=True, exist_ok=True)
@@ -79,21 +103,21 @@ def _logger_for(task_id: str) -> logging.Logger | None:
         with contextlib.suppress(OSError):
             day_dir.chmod(0o777)
         handler = RotatingFileHandler(
-            day_dir / f"{task_id}.log", maxBytes=10 * 1024 * 1024, backupCount=5
+            day_dir / f"{sink}.log", maxBytes=10 * 1024 * 1024, backupCount=5
         )
     except OSError:
         # Warn once per task id through the ordinary console logger, then stay quiet.
         logging.getLogger(__name__).warning(
             "agent log sink unavailable at %s; structured logging disabled", LOG_ROOT
         )
-        _loggers[task_id] = None
+        _loggers[sink] = None
         return None
     handler.setFormatter(NdjsonFormatter())
-    logger = logging.getLogger(f"agent.{task_id}")
+    logger = logging.getLogger(f"agent.{sink}")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False  # keep NDJSON out of uvicorn's console handler
     logger.addHandler(handler)
-    _loggers[task_id] = logger
+    _loggers[sink] = logger
     return logger
 
 
