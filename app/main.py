@@ -93,12 +93,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await clients.disconnect(app.state.clients)
 
 
-class DependencyName(StrEnum):
-    """A closed set: the caller names one of ours, never an arbitrary string."""
+class FaultTarget(StrEnum):
+    """A closed set: the caller names one of ours, never an arbitrary string.
+
+    `worker` is not a dependency, and it is here because the brief names it. "What happens
+    if the worker crashes mid-batch?" is one of the two failure modes the assignment asks
+    about by name, and breaking a store cannot show it.
+    """
 
     MONGODB = "mongodb"
     ELASTICSEARCH = "elasticsearch"
     REDIS = "redis"
+    WORKER = "worker"
 
 
 app = FastAPI(
@@ -282,7 +288,7 @@ async def health(request: Request) -> JSONResponse:
 if settings.demo_mode:
 
     @app.get("/demo/fault", tags=["demo"])
-    async def demo_faults_active() -> dict:
+    async def demo_faults_active(request: Request) -> dict:
         """Which dependencies are currently being simulated as down.
 
         The read half of the control, and it closes a real hazard rather than adding a
@@ -291,10 +297,11 @@ if settings.demo_mode:
         exposes one list drawn from a closed set of three names, under the same
         `DEMO_MODE` gate as the write half.
         """
-        return {"faulted": faults.active()}
+        stopped = ["worker"] if request.app.state.worker.stats()["consumers"] == 0 else []
+        return {"faulted": [*faults.active(), *stopped]}
 
     @app.post("/demo/fault", tags=["demo"])
-    async def demo_fault(dependency: DependencyName, down: bool = True) -> dict:
+    async def demo_fault(request: Request, dependency: FaultTarget, down: bool = True) -> dict:
         """Simulate a dependency being unavailable, so §6's failure modes can be watched.
 
         Those claims are the least verifiable part of the design: nothing in the system
@@ -311,9 +318,21 @@ if settings.demo_mode:
         failure: it is the shape of "the dependency refused", not "the dependency went
         quiet". The console says the same thing where a reader will see it.
         """
-        faults.enable(dependency.value) if down else faults.disable(dependency.value)
+        state = request.app.state
+        if dependency is FaultTarget.WORKER:
+            # Abruptly, not gracefully. `stop()` drains by default, which demonstrates a
+            # clean shutdown - the opposite of the question. A zero drain window cancels
+            # the tasks where they stand, so whatever was mid-message stays in flight with
+            # its visibility deadline running. That is what "crashed mid-batch" means.
+            if down:
+                await state.worker.stop(drain_timeout=0.0)
+            else:
+                await state.worker.start()
+        else:
+            faults.enable(dependency.value) if down else faults.disable(dependency.value)
         log.warning("demo: %s is now simulated as %s", dependency.value, "down" if down else "up")
-        return {"faulted": faults.active()}
+        stopped = ["worker"] if state.worker.stats()["consumers"] == 0 else []
+        return {"faulted": [*faults.active(), *stopped]}
 
     @app.post("/demo/reset", tags=["demo"])
     async def demo_reset(request: Request) -> dict:

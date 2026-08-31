@@ -22,10 +22,20 @@ import type { Health } from '../domain/types'
  * of "the dependency refused", not "the dependency went quiet".
  */
 const CASES: {
-  dep: 'mongodb' | 'elasticsearch' | 'redis'
+  dep: 'mongodb' | 'elasticsearch' | 'redis' | 'worker'
   claim: string
   watch: string
 }[] = [
+  {
+    // Named in the brief, and the only case a broken store cannot show. Stopping it with
+    // a zero drain window cancels the tasks where they stand, so whatever was mid-message
+    // stays in flight with its deadline running: that is what crashing mid-batch means.
+    dep: 'worker',
+    claim:
+      'The API keeps accepting, because it never needed the worker. The queue holds what arrives, in-flight messages return by visibility timeout, and nothing is acknowledged that was not written. Start it again and the backlog drains.',
+    watch:
+      'the queue climbing while the API still answers 202, then draining to zero on restart with nothing lost',
+  },
   {
     dep: 'mongodb',
     claim:
@@ -114,8 +124,20 @@ export default function FailureModes({
             {CASES.map(({ dep, claim, watch }) => {
               // Follows /health, not local memory: a control that argues with the reading
               // beside it is worse than no control.
-              const reported = health?.dependencies[dep]
-              const down = reported !== undefined && reported !== 'up'
+              // The worker is not in `dependencies`; its liveness is the consumer count.
+              const consumers = health?.worker.consumers
+              const reported =
+                dep === 'worker'
+                  ? consumers === undefined
+                    ? undefined
+                    : consumers > 0
+                      ? `${consumers} consumers`
+                      : 'stopped'
+                  : health?.dependencies[dep]
+              const down =
+                dep === 'worker'
+                  ? consumers !== undefined && consumers === 0
+                  : reported !== undefined && reported !== 'up'
               return (
                 <div key={dep} className="chaos-case" data-down={down}>
                   <div className="chaos-case-head">
@@ -126,7 +148,7 @@ export default function FailureModes({
                     >
                       {busy === dep ? '…' : down ? 'Bring it back' : 'Break it'}
                     </button>
-                    <span className={`pill ${reported ?? ''}`}>
+                    <span className={`pill ${down ? '' : 'up'}`}>
                       {dep} {reported ?? '…'}
                     </span>
                   </div>

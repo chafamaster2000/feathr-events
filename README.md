@@ -261,11 +261,16 @@ be worth recording rather than quietly editing:
 - `GET /demo/fault` lists what is currently simulated. It exists to close a hazard, not
   as a convenience: without it a reloaded page cannot tell a left-over simulation from a
   real outage, and somebody debugs a ghost.
-- `POST /demo/fault?dependency=…&down=…` simulates a dependency being unavailable, so
+- `POST /demo/fault?dependency=…&down=…` simulates a component being unavailable, so
   §6's failure modes can be watched instead of read. It flips one flag and the adapters
   raise where a driver error would, so the code that handles it is the code that handles
   the real thing. Registered only under `DEMO_MODE`, like the reset. It is **not** a
   partition, a timeout or a slow dependency: it is the shape of a dependency refusing.
+  `dependency=worker` is the exception, and it is the failure the brief names by name:
+  it stops the consumer tasks with a zero drain window, so whatever was mid-message stays
+  in flight with its deadline running. Measured with 300 events queued behind a stopped
+  worker: the API kept answering 202, the queue held all 300, and restarting drained it
+  to zero with none lost.
 - `GET /events/search/terms` returns the values a search box can suggest, from a terms
   aggregation over the real documents. It is a read like any other, bounded and cheap,
   and it is documented above with the rest. But it exists because a UI needed it, and a
