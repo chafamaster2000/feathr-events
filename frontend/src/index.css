@@ -261,6 +261,13 @@ tr:last-child td { border-bottom: none; }
 @keyframes spin { to { transform: rotate(360deg) } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none } }
 
+/* Clock labels under the stretched drawing. Positioned by percentage so they line up with
+   the bins regardless of how wide the card is; translated so the ends do not overhang. */
+.timeaxis { position: relative; height: 16px; margin-top: 4px; }
+.timeaxis span { position: absolute; top: 0; transform: translateX(-50%); font-size: .7rem;
+  color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timeaxis span:first-child { transform: none; }
+.timeaxis span:last-child { transform: translateX(-100%); }
 .axis-note { margin: 8px 0 0; font-size: .78rem; color: var(--muted);
   font-variant-numeric: tabular-nums; }
 .combo-empty { margin: 2px 11px 8px; font-size: .88rem; color: var(--muted); }

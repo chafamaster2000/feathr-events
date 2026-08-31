@@ -3,30 +3,37 @@ import { colorFor } from '../domain/palette'
 import type { LiveSummary } from '../domain/types'
 
 const W = 720
-const H = 156
-const FLOOR = 22
+const H = 150
+const TICKS = 6
+
+/** Naive ISO from the API is UTC; `new Date` would read it as local time. */
+const utc = (iso: string) => new Date(`${iso}Z`).getTime()
+const clock = (ms: number) =>
+  new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 /**
- * Arrivals as they land, from `/events/stats/realtime`, stacked by event type.
+ * Arrivals on a real clock, from `/events/stats/realtime`, stacked by event type.
  *
- * One column per ten-second bin over a ten-minute window. The counts arrive dense and
- * ordered — gaps filled server-side — so quiet time occupies space here without the
- * client rebuilding an axis out of the bins that happened to hold events. Three scattered
- * moments must never render as three consecutive ones.
+ * Bucketed by each event's own `timestamp` — the one stamped at the HTTP edge, before the
+ * queue — so a bar sits where the event happened, not where the worker got round to it.
+ * Verified rather than assumed: waves sent twelve seconds apart land in exactly the bins
+ * their timestamps predict.
  *
- * Colours come from the shared palette by sorted position, so a type keeps its colour
- * between polls and matches the history chart beside it.
+ * Every bin here is closed. The one still filling is not returned at all, which is what
+ * makes the cached answer exact for its window instead of a snapshot of a bucket that was
+ * still moving — a thousand events spread over a few seconds used to appear all at once
+ * when the key rolled, rather than spread out where they belonged.
  */
 export default function LiveChart({ live }: { live: LiveSummary | null }) {
   if (!live) {
     return <p className="banner">Waiting for the first reading.</p>
   }
 
-  const { series, total, window_seconds, bin_seconds } = live
+  const { series, total, since, until, bin_seconds, window_seconds } = live
   const slots = series[0]?.counts.length ?? 0
-  const minutes = Math.round(window_seconds / 60)
+  const start = utc(since)
+  const end = utc(until)
 
-  // Tallest column, not tallest segment: the bars stack, so the scale is the total.
   const peak = Math.max(
     1,
     ...Array.from({ length: slots }, (_, i) =>
@@ -34,14 +41,21 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
     ),
   )
   const bw = slots > 0 ? W / slots : W
-  const usable = H - FLOOR - 6
+  const usable = H - 6
+
+  // Real times along the axis. Rendered as HTML, not SVG text: the drawing is stretched to
+  // the card width, which would squash any glyph inside it.
+  const ticks = Array.from({ length: TICKS + 1 }, (_, i) => ({
+    at: start + ((end - start) * i) / TICKS,
+    pct: (i / TICKS) * 100,
+  }))
 
   return (
     <>
       <div className="legend" style={{ marginBottom: 10 }}>
         {series.length === 0 ? (
           <span style={{ color: 'var(--muted)' }}>
-            nothing in the last {minutes} minutes — send a burst
+            nothing in the last {Math.round(window_seconds / 60)} minutes — send a burst
           </span>
         ) : (
           series.map((s, i) => (
@@ -60,12 +74,8 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
           height={H}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`Events arriving over the last ${minutes} minutes in ${bin_seconds}-second bins, stacked by event type.`}
+          aria-label={`Events by their own timestamp between ${clock(start)} and ${clock(end)}, in ${bin_seconds}-second bins, stacked by type.`}
         >
-          {/* The newest bin is still filling, so it is marked rather than read as final. */}
-          <rect x={(slots - 1) * bw} y={0} width={bw} height={H - FLOOR}
-                fill="var(--cyan)" opacity={0.12} />
-
           {Array.from({ length: slots }, (_, i) => {
             let acc = 0
             return (
@@ -78,30 +88,34 @@ export default function LiveChart({ live }: { live: LiveSummary | null }) {
                   return (
                     <motion.rect
                       key={s.event_type}
-                      x={i * bw + 0.5}
-                      width={Math.max(1, bw - 1)}
-                      initial={{ height: 0, y: H - FLOOR }}
-                      animate={{ height: h, y: H - FLOOR - acc }}
-                      transition={{ duration: 0.25 }}
+                      x={i * bw}
+                      width={bw}
+                      initial={{ height: 0, y: H }}
+                      animate={{ height: h, y: H - acc }}
+                      transition={{ duration: 0.2 }}
                       fill={colorFor(si)}
                     >
-                      <title>{`${(slots - 1 - i) * bin_seconds}s ago · ${s.event_type}: ${v}`}</title>
+                      <title>{`${clock(start + i * bin_seconds * 1000)} · ${s.event_type}: ${v}`}</title>
                     </motion.rect>
                   )
                 })}
               </g>
             )
           })}
-
-          <line x1={0} x2={W} y1={H - FLOOR} y2={H - FLOOR}
-                stroke="var(--line)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
         </svg>
       </div>
 
+      <div className="timeaxis">
+        {ticks.map((t) => (
+          <span key={t.pct} style={{ left: `${t.pct}%` }}>
+            {clock(t.at)}
+          </span>
+        ))}
+      </div>
+
       <p className="axis-note">
-        {minutes} min ago ← → now · {bin_seconds}-second bins ·{' '}
-        {total.toLocaleString('en-US')} events in the window
-        {peak > 1 ? ` · busiest bin ${peak.toLocaleString('en-US')}` : ''}
+        by event timestamp · {bin_seconds}-second bins ·{' '}
+        {total.toLocaleString('en-US')} events · newest bin closed at {clock(end)}
       </p>
     </>
   )

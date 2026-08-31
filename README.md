@@ -52,7 +52,7 @@ default in [`app/config.py`](./app/config.py). The settings worth knowing:
 | `VISIBILITY_TIMEOUT` | `30.0` | How long a message stays invisible while a consumer holds it |
 | `MAX_RECEIVES` | `5` | Delivery attempts before a message is dead-lettered |
 | `QUEUE_MAXSIZE` | `10000` | Bounded on purpose. When full the API returns `429` |
-| `STATS_CACHE_TTL` | `10` | Staleness ceiling for `/events/stats/realtime`. Matches the live bin: a ceiling longer than a bin makes the newest bins of a live view the least trustworthy part of it |
+| `STATS_CACHE_TTL` | `10` | How long a superseded live summary lingers in Redis. Not a staleness ceiling: the key is the bin slot and only closed bins are returned, so a cached entry is exact for the window it describes |
 
 ### If MongoDB will not start
 
@@ -139,8 +139,8 @@ it is term-level rather than analysed. The trade-off is explained in `ARCHITECTU
 ### `GET /events/stats/realtime`
 
 A **lightweight stats summary** of recent activity, served from Redis with a configurable
-TTL — one dense array of counts per ten-second bin, per event type, over the last ten
-minutes.
+TTL — one dense array of counts per **two-second bin**, per event type, over the last five
+minutes, bucketed by each event's own `timestamp`.
 
 It answered with the same hourly aggregation as `/events/stats` at first, and at that
 granularity the current hour is a single bar that grows for sixty minutes: nothing it
@@ -150,15 +150,22 @@ roughly 22KB on an endpoint a live view polls every couple of seconds, which is 
 summary.
 
 The weight was in the row objects, not in the numbers. One dense array of integers per
-type carries the same breakdown — enough to stack the chart by type — in **1,049 bytes**,
-measured.
+type carries the same breakdown — enough to stack the chart by type — in **1,921 bytes**
+for 150 bins across five types, measured.
+
+The window ends at the last **closed** bin; the one still filling is not returned. That is
+what makes the cached answer *exact for its window* rather than a snapshot of a bucket that
+was still moving — with the filling bin included, it was captured at its first request,
+usually near-empty, and served that way until the key rolled, so a burst spread across
+seconds appeared to arrive all at once.
 
 ```jsonc
 {
-  "since": "2026-08-31T03:35:00",
-  "window_seconds": 600,
-  "bin_seconds": 10,
-  "total": 6000,
+  "since": "2026-08-31T04:05:34",
+  "until": "2026-08-31T04:10:34",
+  "window_seconds": 300,
+  "bin_seconds": 2,
+  "total": 1090,
   "series": [
     { "event_type": "add_to_cart", "total": 1176, "counts": [0, 0, 120, 480, ...] },
     { "event_type": "click",       "total": 1200, "counts": [0, 0, 118, 502, ...] },

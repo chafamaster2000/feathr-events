@@ -174,7 +174,7 @@ export default function StatsPanel({
   stats: ReturnType<typeof useStats>
 }) {
   const [tab, setTab] = useState<TabId>('query')
-  const { query, realtime, stale, latency, cacheAgeMs, computedAt, loadingQuery, reloadQuery } =
+  const { query, realtime, stale, latency, computedAt, loadingQuery, reloadQuery } =
     stats
 
   const shown = tab === 'query' ? query : realtime
@@ -280,10 +280,10 @@ export default function StatsPanel({
             <span className="pill">
               {realtime?.cached ? 'served from cache' : 'recomputed'}
             </span>
-            <span className="pill">
-              {Math.round((cacheAgeMs ?? 0) / 1000)}s old · {realtime?.ttl_seconds ?? '—'}s
-              ceiling
-            </span>
+            {/* Not "Ns old". With the filling bin excluded, a cached answer is not a stale
+                version of now — it is the exact answer for a window that ended. What the
+                reader needs is where that window ends, which the chart's axis also says. */}
+            <span className="pill">exact through the window shown</span>
             {latency && (
               <span className="pill">
                 mongo {latency.query}ms · redis {latency.realtime}ms
@@ -291,9 +291,9 @@ export default function StatsPanel({
             )}
           </div>
           <p className="note">
-            Arrivals as they land, in ten-second bins over the last ten minutes. The one
-            read served from Redis, so it can be up to {realtime?.ttl_seconds ?? 10}s
-            behind — and says which.
+            Arrivals placed by their own timestamp — the one stamped at the HTTP edge,
+            before the queue — in two-second bins. Every bin shown is closed, so the cached
+            answer is exact for its window rather than a snapshot of a bucket still moving.
           </p>
         </div>
       </div>

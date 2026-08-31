@@ -44,12 +44,12 @@ class Bucket(StrEnum):
 
 _MONGO_UNIT = {Bucket.HOURLY: "hour", Bucket.DAILY: "day", Bucket.WEEKLY: "week"}
 
-# The live window. Ten minutes of ten-second bins is sixty numbers: fine enough that a
-# burst appears where it happened, small enough to stay a summary. The cache TTL in
-# config.py should track LIVE_BIN_SECONDS - a ceiling longer than a bin makes the newest
-# bins of a live view the least trustworthy part of it.
-LIVE_WINDOW_SECONDS = 600
-LIVE_BIN_SECONDS = 10
+# The live window: five minutes of two-second bins. Ten-second bins collapsed a thousand
+# events sent across a few seconds into one bar - the spread that made them interesting
+# disappeared into the bucket. Two seconds shows it, and 150 numbers per type is still a
+# summary.
+LIVE_WINDOW_SECONDS = 300
+LIVE_BIN_SECONDS = 2
 
 
 # A suggestion prefix reaches Elasticsearch inside a regex, and it is a user's keystrokes.
@@ -183,8 +183,16 @@ class EventQueries:
         keeps quiet time occupying space: three scattered moments must not render as three
         consecutive ones.
         """
-        # Truncated to the bin, so the window is stable for the length of one bin instead
-        # of sliding with every request - which is also what lets the cache key hold.
+        # The window ends at the last *completed* bin, and that is what makes this
+        # cacheable rather than approximately cacheable. A bin still filling changes under
+        # the cache: it gets snapshotted at its first request - often empty - and served
+        # that way until the key rolls, so a burst appeared to arrive all at once at the
+        # end instead of where it happened. Every bin returned here is final, so the
+        # cached answer is not a stale approximation of the window; it is exact for it.
+        #
+        # (Not absolutely: an event whose timestamp lands in a bin can still reach MongoDB
+        # a few milliseconds after that bin closed - worker lag is 2-48ms - so a bin can
+        # gain a straggler right at the boundary. Two orders of magnitude below the bin.)
         now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
         end = now - timedelta(seconds=now.second % bin_seconds)
         since = end - timedelta(seconds=window_seconds)
@@ -214,7 +222,7 @@ class EventQueries:
             )
         ]
 
-        slots = window_seconds // bin_seconds
+        slots = window_seconds // bin_seconds  # bins in [since, end); `end` is still filling
         # One dense array per type rather than one row per (bin, type). The grid was
         # rejected for weight — three hundred `{bucket, event_type, count}` objects is
         # ~22KB — but that cost is the row objects, not the numbers. Five arrays of sixty
@@ -223,9 +231,9 @@ class EventQueries:
         per_type: dict[str, list[int]] = {}
         for row in rows:
             index = int((row["_id"]["bin"] - since).total_seconds()) // bin_seconds
-            if not 0 <= index <= slots:
+            if not 0 <= index < slots:
                 continue
-            counts = per_type.setdefault(row["_id"]["event_type"], [0] * (slots + 1))
+            counts = per_type.setdefault(row["_id"]["event_type"], [0] * slots)
             counts[index] += row["count"]
 
         # Sorted by name, not by volume: a type has to keep its colour between polls, and
@@ -238,6 +246,7 @@ class EventQueries:
 
         return {
             "since": since,
+            "until": end,
             "window_seconds": window_seconds,
             "bin_seconds": bin_seconds,
             "total": sum(s["total"] for s in series),

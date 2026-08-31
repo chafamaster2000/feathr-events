@@ -76,7 +76,10 @@ export interface DepthSample {
  * at a resolution anyone can take in, in a few hundred bytes.
  */
 export interface LiveSummary {
+  /** Start of the window, and the end of the last *completed* bin. Every bin between them
+   *  is final: the one still filling is deliberately not returned. */
   since: string
+  until: string
   window_seconds: number
   bin_seconds: number
   total: number

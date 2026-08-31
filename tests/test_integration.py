@@ -16,6 +16,8 @@ that seam is a Protocol.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 
@@ -176,8 +178,20 @@ async def test_cycle_dual_write_diverges_then_recovers(client: httpx.AsyncClient
 # ---------------------------------------------------------------------------
 
 
-async def test_cycle_cache_serves_bounded_staleness(client: httpx.AsyncClient) -> None:
-    """The cached endpoint lags on purpose, and the uncached one proves the lag is real."""
+async def test_cycle_cache_serves_a_closed_window(client: httpx.AsyncClient) -> None:
+    """The cached live summary describes a window that has already ended.
+
+    This used to assert that the cached total lagged the uncached one by exactly the
+    events posted in between. That comparison no longer means anything, and the change is
+    the point: `/events/stats` is every event at hourly granularity, while the live
+    summary is closed two-second bins over the last five minutes. They answer different
+    questions now, so equal totals would be the surprising outcome.
+
+    What replaced it is the stronger property. Because the bin still filling is excluded,
+    a cached answer is not an out-of-date view of the present — it is the exact answer for
+    a window that closed. Two calls inside one slot must therefore be identical, not
+    merely close.
+    """
     first = await client.post("/events", json=payload())
     await eventually(
         lambda: mongo_doc(client, first.json()["event_id"]),
@@ -185,24 +199,23 @@ async def test_cycle_cache_serves_bounded_staleness(client: httpx.AsyncClient) -
     )
 
     miss = (await client.get("/events/stats/realtime")).json()
-    assert miss["cached"] is False
     assert miss["ttl_seconds"] == settings.stats_cache_ttl
-    total_at_cache_time = miss["total"]
 
     hit = (await client.get("/events/stats/realtime")).json()
     assert hit["cached"] is True
-    assert hit["total"] == total_at_cache_time
+    for field in ("since", "until", "total", "series"):
+        assert hit[field] == miss[field], f"{field} moved inside one slot"
 
-    # A second event lands. The uncached endpoint sees it; the cached one does not.
-    second = await client.post("/events", json=payload(event_type="conversion"))
-    await eventually(
-        lambda: mongo_doc(client, second.json()["event_id"]),
-        what="the second event landing",
-    )
+    # The window ends at a bin that has closed, never at the present moment.
+    until = datetime.fromisoformat(miss["until"])
+    assert until <= datetime.now(UTC).replace(tzinfo=None), "the filling bin was included"
+    assert (until - datetime.fromisoformat(miss["since"])).total_seconds() == miss[
+        "window_seconds"
+    ]
 
-    fresh = (await client.get("/events/stats")).json()
-    stale = (await client.get("/events/stats/realtime")).json()
-
-    assert fresh["total"] == total_at_cache_time + 1, "the uncached endpoint is current"
-    assert stale["total"] == total_at_cache_time, "the cached one lags, within its TTL"
-    assert stale["cached"] is True
+    # Dense, and filled server-side: a client that had to infer the axis from the bins
+    # that happen to hold events would render scattered moments as consecutive ones.
+    slots = miss["window_seconds"] // miss["bin_seconds"]
+    for entry in miss["series"]:
+        assert len(entry["counts"]) == slots, "the series is not dense"
+        assert sum(entry["counts"]) == entry["total"]
