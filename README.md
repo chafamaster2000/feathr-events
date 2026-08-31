@@ -124,7 +124,8 @@ MongoDB aggregation: counts grouped by event type and time bucket.
 
 ### `GET /events/search`
 
-Full-text over `metadata` and the URL path, in Elasticsearch. **MongoDB does not
+Full-text over `event_type`, `user_id`, `metadata` and the URL path, in
+Elasticsearch. **MongoDB does not
 participate in this path.**
 
 | Parameter | Notes |
@@ -182,7 +183,7 @@ paths until the event shows up in each — which is why the timings it reports a
 |---|---|---|
 | Queue depth | The in-memory queue filling and draining. Send a burst and watch it absorb | `GET /health` |
 | Trace one event | Accepted → in MongoDB → searchable, with real milliseconds | `POST /events`, then `GET /events` and `GET /events/search` |
-| Search | Full-text over `metadata` in Elasticsearch | `GET /events/search` |
+| Search | Full-text over the type, the user, `metadata` and the URL, in Elasticsearch | `GET /events/search` |
 | Cache | `/events/stats` and `/events/stats/realtime` side by side, and the drift between them | both stats endpoints |
 
 The gap the trace shows before "searchable" is Elasticsearch's one-second

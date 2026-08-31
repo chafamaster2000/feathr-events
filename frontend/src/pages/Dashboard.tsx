@@ -8,7 +8,7 @@ import SearchResults from '../components/SearchResults'
 import StatsPanel from '../components/StatsPanel'
 import StatusBar from '../components/StatusBar'
 import TraceHero from '../components/TraceHero'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * The console. It reads the same five endpoints any client has and writes only through
@@ -22,6 +22,7 @@ export default function Dashboard() {
   // and a later burst keeps rendering the previous single event. What the surface shows
   // is decided by what the reader last asked for.
   const [mode, setMode] = useState<'trace' | 'burst'>('trace')
+  const results = useRef<HTMLDivElement>(null)
   const { health, history, error } = useHealthPoll(1000)
   const search = useSearch()
   // One log, two producers. Sending a single event is a measurement like any other, and
@@ -29,6 +30,32 @@ export default function Dashboard() {
   const log = useRunLog()
   const trace = useTrace(log.add)
   const ingest = useIngest(() => setRefreshKey((k) => k + 1), log.add)
+
+  // Choosing a suggestion is a promise to show the matches, and they render far below
+  // the fold. Scrolled once the results are in: moving the page while the panel is still
+  // empty lands the reader on a card that then grows under them.
+  const landed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!search.committed || search.busy) return
+    if (landed.current === search.committed) return
+    landed.current = search.committed
+    const target = results.current
+    if (!target) return
+
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const from = window.scrollY
+    target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    if (reduce) return
+
+    // Smooth scrolling is a request, not a guarantee — browsers and profiles suppress it,
+    // and when they do the page simply never moves and the promise the click made breaks
+    // without a trace. Measured here rather than trusted: if nothing happened, land it
+    // plainly. Verified against a browser that does suppress it.
+    const settle = setTimeout(() => {
+      if (Math.abs(window.scrollY - from) < 4) target.scrollIntoView({ block: 'start' })
+    }, 260)
+    return () => clearTimeout(settle)
+  }, [search.committed, search.busy])
 
   return (
     <div className="shell">
@@ -50,10 +77,17 @@ export default function Dashboard() {
         </span>
         <SearchBar
           query={search.query}
+          open={search.open}
+          pending={search.pending}
+          suggestions={search.suggestions}
+          matches={search.matches}
+          popular={search.popular}
           busy={search.busy}
-          terms={search.terms}
+          minChars={search.minChars}
           onType={search.type}
-          onPick={search.now}
+          onCommit={search.commit}
+          onFocus={search.focus}
+          onDismiss={search.dismiss}
         />
       </header>
 
@@ -90,7 +124,8 @@ export default function Dashboard() {
         <StatsPanel refreshKey={refreshKey} />
         {search.hasSearched && (
           <SearchResults
-            query={search.query}
+            ref={results}
+            query={search.committed ?? search.query}
             items={search.items}
             total={search.total}
             error={search.error}

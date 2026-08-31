@@ -219,16 +219,41 @@ tr:last-child td { border-bottom: none; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
-/* ---- masthead search + suggestions ---- */
-.searchwrap { margin-left: auto; flex: 1 1 380px; max-width: 520px; }
-.suggest { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 9px; }
-.suggest-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
-  color: var(--muted); font-weight: 700; margin-right: 2px; }
-.chip { padding: 3px 11px; font-size: .8rem; font-weight: 500; border-radius: 999px;
-  display: inline-flex; align-items: center; gap: 6px; }
-.chip em { font-style: normal; font-variant-numeric: tabular-nums; font-size: .74rem;
-  color: var(--muted); }
-.chip:hover em { color: var(--navy); }
+/* ---- masthead search ---- */
+/* The panel floats: `position: absolute` so opening it cannot change the height of the
+   header. The suggestions used to sit inline under the input, which meant the masthead
+   grew a row the moment the data loaded and shoved the whole page down. */
+.searchwrap { margin-left: auto; flex: 1 1 380px; max-width: 520px; position: relative; }
+
+.combo { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 14px 36px rgba(25, 38, 60, .16); padding: 6px; }
+.combo-head { margin: 4px 10px 6px; font-size: .68rem; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.combo button { display: flex; width: 100%; align-items: center; justify-content: space-between;
+  gap: 12px; text-align: left; border: none; background: transparent; border-radius: 10px;
+  padding: 8px 11px; font-size: .92rem; }
+/* Hover and keyboard share one highlight, so the arrow keys and the mouse cannot
+   disagree about which row Enter is about to run. */
+.combo button.on { background: var(--cyan-soft); }
+.combo-value { display: inline-flex; align-items: center; gap: 8px; font-weight: 600;
+  color: var(--navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo button em { font-style: normal; font-size: .76rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; flex: none; }
+.combo-empty { margin: 2px 11px 8px; font-size: .88rem; color: var(--muted); }
+/* The typo, kept but demoted: the reader should see the word they searched for, and be
+   able to check what they actually typed without it being the headline. */
+.corrected { color: var(--muted); font-weight: 400; }
+
+/* Three dots that say a request is on its way, so the throttle reads as deliberate
+   rather than as a box that stopped answering. */
+.combo-wait { display: flex; gap: 5px; padding: 10px 12px 14px; }
+.combo-wait span { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan);
+  animation: combo-pulse 1s infinite ease-in-out; }
+.combo-wait span:nth-child(2) { animation-delay: .16s; }
+.combo-wait span:nth-child(3) { animation-delay: .32s; }
+@keyframes combo-pulse { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .combo-wait span { animation: none; opacity: .6 } }
 
 /* ---- pipeline diagram ---- */
 .diagram { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }

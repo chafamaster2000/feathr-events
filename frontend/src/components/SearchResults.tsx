@@ -1,4 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
+import { useMemo } from 'react'
+import { correctionFor } from '../domain/correction'
 import type { FeathrEvent } from '../domain/types'
 
 /**
@@ -10,21 +12,31 @@ export default function SearchResults({
   items,
   total,
   error,
+  ref,
 }: {
   query: string
   items: FeathrEvent[]
   total: number | null
   error: string | null
+  /** The scroll target: choosing a suggestion should land the reader here. */
+  ref?: React.Ref<HTMLDivElement>
 }) {
+  const corrected = useMemo(() => correctionFor(query, items), [query, items])
+
   return (
-    <div className="card span-12">
+    <div className="card span-12" ref={ref}>
       <h2>Search · Elasticsearch</h2>
 
       {error && <p className="banner">{error}</p>}
 
       {!error && (
         <p className="note" style={{ marginTop: 0 }}>
-          {total} match{total === 1 ? '' : 'es'} for <strong>{query}</strong>
+          {(total ?? 0).toLocaleString('en-US')} match{total === 1 ? '' : 'es'} for{' '}
+          {/* The word the results are actually about, not the one that was typed. A page
+              of signup events headed "signip" names the single string that appears
+              nowhere in it. */}
+          <strong>{corrected ?? query}</strong>
+          {corrected && <span className="corrected"> — you typed “{query}”</span>}
           {items.length < (total ?? 0) ? ` · showing ${items.length}` : ''}
         </p>
       )}

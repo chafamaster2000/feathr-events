@@ -17,6 +17,7 @@ exists to avoid. See ARCHITECTURE.md §3.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -42,6 +43,12 @@ class Bucket(StrEnum):
 
 
 _MONGO_UNIT = {Bucket.HOURLY: "hour", Bucket.DAILY: "day", Bucket.WEEKLY: "week"}
+
+
+# A suggestion prefix reaches Elasticsearch inside a regex, and it is a user's keystrokes.
+# A whitelist rather than an escape list: an unescaped `.*` turns a cheap lookup into a
+# scan, and a stray `(` turns it into a 400. What survives cannot mean anything but itself.
+_UNSAFE_IN_PREFIX = re.compile(r"[^a-z0-9 _\-./:]")
 
 
 class EventQueries:
@@ -150,7 +157,14 @@ class EventQueries:
     # ---- Elasticsearch ------------------------------------------------------
 
     async def search(self, *, q: str, limit: int = 50) -> dict[str, Any]:
-        """Full-text over `metadata` and the URL path.
+        """Full-text over what a reader would actually type: the event type, the user, the
+        URL path, and anything in `metadata`.
+
+        `event_type` and `user_id` are here because leaving them out made the box blind to
+        the most obvious search in the whole domain — "signup" returned nothing while the
+        index held thousands of them. They are keywords, so this is exact term matching on
+        them, boosted above metadata: an event whose *type* is the word beats one that
+        merely mentions it.
 
         Known and accepted limitation: `metadata` is mapped as `flattened` to avoid
         mapping explosion (see ARCHITECTURE.md §3), and that indexes every leaf as a
@@ -166,6 +180,8 @@ class EventQueries:
                     "should": [
                         # Exact first, and boosted: a typo should still find the event,
                         # but never outrank the event that actually matched.
+                        {"match": {"event_type": {"query": q, "boost": 5}}},
+                        {"match": {"user_id": {"query": q, "boost": 4}}},
                         {"match": {"metadata": {"query": q, "boost": 3}}},
                         {"match": {"source_url.text": {"query": q, "boost": 2}}},
                         # Then the fuzzy pass. AUTO scales the allowed edit distance with
@@ -176,6 +192,7 @@ class EventQueries:
                         # and therefore indexed as keywords. Verified rather than assumed:
                         # "firefx" returns zero hits without fuzziness and the same 14 as
                         # "firefox" with it.
+                        {"match": {"event_type": {"query": q, "fuzziness": "AUTO"}}},
                         {"match": {"metadata": {"query": q, "fuzziness": "AUTO"}}},
                         {"match": {"source_url.text": {"query": q, "fuzziness": "AUTO"}}},
                     ],
@@ -190,8 +207,10 @@ class EventQueries:
             "items": [{"event_id": h["_id"], "score": h["_score"], **h["_source"]} for h in hits],
         }
 
-    async def search_terms(self, *, limit: int = 12) -> dict[str, Any]:
-        """The most common values that appear anywhere in `metadata`.
+    async def search_terms(
+        self, *, limit: int = 12, starts_with: str | None = None
+    ) -> dict[str, Any]:
+        """What the search box can offer: the event types, and the values in `metadata`.
 
         A search box over free-form metadata is unusable without this: nothing on screen
         tells the reader that "webkit-nightly" is a thing this data contains. The list is
@@ -201,14 +220,53 @@ class EventQueries:
         field whose leaves are keywords, so a terms aggregation over it returns the leaf
         values across every key at once. On a dynamically mapped object this would need one
         aggregation per key, and the set of keys is exactly what is unknown here.
+
+        With `starts_with`, the same aggregation becomes a type-ahead: the caller gets the
+        values that begin with what has been typed, with their real counts. Note the
+        division of labour — this is a prefix match, deliberately, while `search` is fuzzy.
+        Suggestions help you finish a word you are spelling correctly; fuzziness rescues
+        you when you are not, and it does that once you submit.
         """
+        agg: dict[str, Any] = {"field": "metadata", "size": limit}
+        if starts_with is not None:
+            cleaned = _UNSAFE_IN_PREFIX.sub("", starts_with.lower())
+            if not cleaned:
+                # Everything typed was dropped, so nothing can legitimately match. Falling
+                # back to the global list here would answer a question nobody asked.
+                return {"terms": []}
+            # `include` is a regex matched against the whole term, so a prefix needs an
+            # explicit tail. `.` is the one Lucene metacharacter the whitelist lets past.
+            agg["include"] = cleaned.replace(".", "\\.") + ".*"
+
+        # Two aggregations, one round trip. `event_type` is its own field, so a single
+        # terms agg cannot see both — and a type-ahead that cannot complete "sig" into
+        # "signup" is suggesting from half the data. `user_id` is deliberately left out:
+        # forty ids of a fortieth of the corpus each would bury the five that matter.
         response = await self._es.search(
             index=self._index,
             size=0,
-            aggs={"values": {"terms": {"field": "metadata", "size": limit}}},
+            aggs={"values": {"terms": agg}, "types": {"terms": {**agg, "field": "event_type"}}},
         )
-        buckets = response["aggregations"]["values"]["buckets"]
-        return {"terms": [{"value": b["key"], "count": b["doc_count"]} for b in buckets]}
+        buckets = [
+            *response["aggregations"]["types"]["buckets"],
+            *response["aggregations"]["values"]["buckets"],
+        ]
+        # Deduplicated because a value could in principle live in both fields, and one row
+        # per thing you can search for is the promise the panel makes.
+        seen: dict[str, int] = {}
+        for b in buckets:
+            seen.setdefault(b["key"], b["doc_count"])
+
+        if starts_with is None:
+            # Nothing has been typed, so this list is an introduction to the data rather
+            # than an answer. Ranked purely by frequency it opened with seven browsers and
+            # devices and one event type — the domain's primary axis, almost entirely
+            # missing from its own menu. Types lead; frequency orders the rest.
+            types = {b["key"] for b in response["aggregations"]["types"]["buckets"]}
+            ordered = sorted(seen.items(), key=lambda kv: (kv[0] not in types, -kv[1]))
+        else:
+            ordered = sorted(seen.items(), key=lambda kv: -kv[1])
+        return {"terms": [{"value": value, "count": count} for value, count in ordered[:limit]]}
 
     # ---- helpers ------------------------------------------------------------
 

@@ -58,7 +58,7 @@ through the cache.
 | **EventQueue** | Delivery semantics: visibility timeout, delivery counting, backoff, dead-letter routing | Business logic. It moves opaque events |
 | **Worker** | Two writes, in order, then the ack | Retry logic. There is no `except` that retries — see §4 |
 | **MongoDB** | The source of truth. Filters and aggregations | Full-text search |
-| **Elasticsearch** | Full-text over `metadata`. A derived index | Being authoritative. It can be rebuilt from MongoDB at any time |
+| **Elasticsearch** | Full-text over the type, the user, `metadata` and the URL. A derived index | Being authoritative. It can be rebuilt from MongoDB at any time |
 | **Redis** | One cached aggregation, with a TTL | Durability. It runs with persistence deliberately off |
 
 ### Why the `event_id` is assigned in the API layer
@@ -160,7 +160,7 @@ wrong:
 
 | Field | Type | Reasoning |
 |---|---|---|
-| `event_type` | `keyword` | Not `text`. Nobody runs full-text over `"pageview"` — it is filtered exactly and grouped. `text` would tokenize it and break aggregations |
+| `event_type` | `keyword` | Not `text`. It is filtered exactly and grouped, and `text` would tokenize it and break aggregations. Search still matches it — as an exact term, which is why it carries the highest boost: an event whose *type* is the word beats one that merely mentions it |
 | `timestamp`, `received_at` | `date` | Range queries and date histograms |
 | `user_id` | `keyword` | An opaque identifier; analyzing it is meaningless |
 | `source_url` | `keyword` + `text` sub-field | Group by exact URL, and search path tokens |

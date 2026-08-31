@@ -37,11 +37,12 @@ export const api = {
       })
       .then((r) => r.data),
 
-  /** Most common metadata values, so the search box can suggest real terms. */
-  searchTerms: (limit = 10) =>
+  /** Metadata values, so the search box can suggest real terms. With `q` the same
+   *  aggregation answers a type-ahead: only the values that begin with what was typed. */
+  searchTerms: (limit = 10, q?: string) =>
     client
       .get<{ terms: { value: string; count: number }[] }>('/events/search/terms', {
-        params: { limit },
+        params: q ? { limit, q } : { limit },
       })
       .then((r) => r.data),
 
