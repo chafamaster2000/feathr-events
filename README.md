@@ -475,8 +475,9 @@ flowchart LR
 
 The gates are in the repository, not just described here: `.claude/skills/` holds the
 rules and `.claude/agents/` the reviewers, so every claim in this section can be read
-rather than taken on trust. They were ignored by `.gitignore` until a panel would have had
-no way to check any of it.
+rather than taken on trust. An earlier `.gitignore` excluded them as third-party content,
+which would have made every claim in this section unverifiable; committing them was the
+correction, and `.gitignore` itself records the reasoning.
 
 Each gate exists because of a specific failure. **Context7:** the async MongoDB driver is
 `pymongo`, not the `motor` a decade of tutorials name — deprecated 2026-05-14. **Logs:**
