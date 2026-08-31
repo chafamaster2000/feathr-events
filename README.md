@@ -436,122 +436,83 @@ is the usual way an Elasticsearch suite quietly becomes untrustworthy.
 
 **Tool:** Claude (Claude Code, in the terminal), for the whole project.
 
-### How it helped
+### The loop
 
-The largest gains were not code generation. They were in **exploring trade-offs and
-stress-testing my own assumptions** — running an adversarial questioning loop where I had
-to defend each decision one at a time, which is how most of `ARCHITECTURE.md` was
-produced.
+Four gates, each closing a way I have watched myself and the tool get things wrong. Every
+arrow back is one I actually took.
 
-It was also useful for **verification rather than authorship**: instead of accepting a
-description of SQS semantics, I had it stand up ElasticMQ (an SQS-compatible server) and
-run the real message lifecycle. That surfaced a detail no prose summary mentions — the
-receipt handle is regenerated on every redelivery, so a stalled worker's late `delete` is
-rejected rather than deleting another consumer's work. The in-memory queue reproduces
-that behaviour, and a test asserts it.
+```mermaid
+flowchart LR
+    A([A decision]) --> C["Context7<br/>the real version, cited<br/>before anything imports it"]
+    C --> D["Build, then run it<br/>never just lint it"]
+    D --> F["Read the NDJSON logs<br/>before calling anything done"]
+    F --> H["A separate agent judges the capture<br/>this session never sees pixels"]
+    H --> I["Adversarial review by models<br/>that did not write the code"]
+    I --> K([Done])
 
-And for **finding what I had not thought about**: the dual write between MongoDB and
-Elasticsearch, the fact that `uvicorn --workers` silently creates one queue per process,
-and that commutativity — not coordination — is what makes concurrency safe here. The
-brief asks none of these. A panel will.
+    F -. "warn or error" .-> D
+    H -. "fails" .-> D
+    I -. "a finding, reproduced first" .-> D
+```
 
-### The loop, concretely
+Each gate exists because of a specific failure. **Context7:** the async MongoDB driver is
+`pymongo`, not the `motor` a decade of tutorials name — deprecated 2026-05-14. **Logs:**
+they caught a rate limiter writing 1,651 identical WARN lines per flood, a defence handing
+the attacker unbounded writes to the operator's disk. **Pixels:** the trace timeline failed
+contrast twice, the second time after I had "fixed" it — the ratio had improved and the
+text was still too small. I would have shipped it.
 
-Four gates, each closing a way I have watched myself and the tool get things wrong.
+**Review is the gate I would keep if I could keep only one**, and it is worth being precise
+about what it finds: never the reasoning. It breaks documentation drifting away from code,
+and edges the code does not defend — what a person staring at something for two days cannot
+see.
 
-**Documentation before an API.** A skill blocks reading a third-party library from memory:
-the version in front of me is resolved through Context7 and cited before anything imports
-it. Training data expires, and a plausible answer about a library is indistinguishable
-from a correct one until it runs.
+Its best catch is the one I would least have found alone. Two changes I made hours apart
+were each correct and separately tested; composed, the second silently disabled the first.
+The worker's heartbeat overwrote the deadline the queue's backoff had just set, so retries
+came at a flat 30 seconds while this repository's own tests certified they doubled and
+`ARCHITECTURE.md` put a 930-second budget on it. The real budget was 150.
 
-Two facts in this repo are the kind that gate exists for, and both are recorded where the
-decision was made. The async MongoDB driver is `pymongo`, not `motor`, deprecated in May
-2026 — here the plausible answer and the correct one are different, and the dated comment
-in `pyproject.toml` is there because a date is checkable and a recollection is not. And
-`elasticsearch` needs its `[async]` extra: without it every import resolves and the
-process dies at startup on `AiohttpHttpNode`, which is the failure shape that makes
-guessing expensive.
-
-**Structured logs, wired once and read every time.** One skill installs the NDJSON sink
-per stack; another is the closing gate that refuses to call a task done until the logs for
-it have been read. That is why `app/observability.py` exists, and it is also where the
-worst bug in this project came from and was found — see `ARCHITECTURE.md` §7b.
-
-**Screenshots analysed by a separate agent.** The console is the one place where "it
-works" is a visual claim, and the main session never sees pixels: a dedicated agent takes
-the capture, judges it against stated criteria, and returns prose. It failed the contrast
-of the trace timeline twice, the second time after I had "fixed" it — the ratio had
-improved and the text was still too small and too light. I would have shipped it.
-
-**Adversarial review, at the end, by models that had not written the code.** Three
-reviewers: one checking every requirement against the running system rather than the
-source, one grading the documents the way the panel will, and one — deliberately a
-different model — trying to break the architecture. They found, among others, an endpoint
-serving in production that no document mentioned and that falsified a claim this README
-made in bold; a caching section arguing from a bin size the code had moved off; a response
-example in this file whose numbers did not add up; and a `json.loads` outside a `try` that
-made a corrupt cache value return `500` from the one endpoint whose contract says it never
-fails. Every finding was verified against the running system before I accepted it. None
-was a false positive.
-
-That last gate is the one I would keep if I could keep only one. The reviewers found
-nothing wrong with the *reasoning*: what they broke was documentation drifting away from
-code, and edges the code did not defend. Those are exactly the failures a person who has
-been staring at something for two days cannot see.
+```
+before   gaps [30, 30, 30, 30]     dead-letter at 150s
+after    gaps [30, 60, 120, 240]   dead-letter at 930s
+```
 
 ### Where I pushed back on it
 
-This is the part worth reading, because the failures were not random. They fell into
-three distinct kinds.
+The failures were not random. They fall into four kinds, and each needs a different
+correction:
 
-**1. Facts that expired after training.** Asked for an async MongoDB driver, the default
-answer is `motor` — a decade of tutorials say so. **Motor has been deprecated since
-2026-05-14**; the successor is `pymongo.AsyncMongoClient`. I verified this against PyPI
-and the pymongo repository before writing a line. This is the structural failure mode of
-a language model: it does not hallucinate, it confidently repeats what was true recently.
-Dependencies are exactly the class of fact that must always be checked.
+| Kind | What happened here | What catches it |
+|---|---|---|
+| **Expired fact** | `motor` recommended as the async MongoDB driver; deprecated 2026-05-14 | Check the source. A model does not hallucinate here — it confidently repeats what was true recently |
+| **Plausible answer, wrong problem** | An early diagram cached `/events/search` in Redis, and invented a `GET /events/{id}` | The specification is the authority, not coherence. Both errors survived because the output was internally consistent |
+| **Right fact, wrong conclusion** | `worker_concurrency = 1`, justified by flaky tests under concurrency | Argue with the reasoning — there is nothing to look up |
+| **Static validation mistaken for verification** | Scaffolding that passed imports, lint and resolution and had never been run | Run it. Three defects appeared on the first real execution |
 
-**2. Plausible solutions to the wrong problem.** An early architecture diagram placed
-Redis in front of `/events/search`. Reasonable-sounding — searching is expensive, caching
-searches is a known pattern. It is also wrong: the brief specifies caching for
-`/events/stats/realtime`, and caching free-text search is a bad idea independently
-(enormous query space, hit rate near zero). The same diagram included a `GET /events/{id}`
-endpoint that does not exist in the brief. Both errors survived because the output was
-internally coherent. **The specification is the authority, not plausibility.**
+The third is the hardest, because there is nothing to look up. The fact was true and the
+conclusion did not follow: tests pin concurrency through configuration, not through the
+production default, and a default of 1 means a serial pipeline with `async` on top. The
+real argument is that with one consumer, at-least-once delivery almost never manifests and
+ordering never breaks — you can ship without the unique index and it *appears* to work.
 
-**3. Correct facts, wrong conclusion.** The initial recommendation was
-`worker_concurrency = 1` by default, justified by integration tests being flaky under
-concurrency. The fact is true; the conclusion does not follow — tests pin concurrency
-through configuration, not through the production default. A default of 1 means building
-a serial pipeline and putting `async` on top of it. The stronger argument is that with one
-consumer, at-least-once delivery almost never manifests, idempotency is never exercised,
-and ordering never breaks: you can ship without the unique index and it *appears* to work.
-It is now 8. This kind of error is the hardest to catch, because there is nothing to look
-up — it only surfaces by arguing with the reasoning.
-
-**4. Static validation is not verification.** The scaffolding passed imports, linting and
-dependency resolution, and had never been executed. The first real run produced three
-defects no code review could find: MongoDB refusing to start on this kernel, the
-Elasticsearch client missing its `[async]` extra (imports resolve; the app dies at
-startup), and the test suite running on Python 3.14 while the container runs 3.13 —
-`requires-python = ">=3.13"` let uv pick the system interpreter. All three are now fixed
-and the version is pinned. **Running the system is a form of verification that analysis
-cannot substitute for.**
+The same standard applies to my own conclusions. I wrote in a commit that a stuck console
+animation was caused by a re-render interrupting it; every measurement behind that had been
+taken in a backgrounded tab, where the browser throttles the loop the animation library
+uses. Both explanations fit and I could not separate them, so I replaced the claim with
+what was observed and made the fix independent of the answer.
 
 ### How it shaped the work
 
-It changed the *order*, not just the speed. Because exploring a trade-off became cheap, I
-front-loaded architecture and wrote code against decisions that were already argued
-through — which is why the queue's state machine came from an observed ElasticMQ session
-rather than from a description of one.
+It changed the *order*, not just the speed. Exploring a trade-off became cheap, so I
+front-loaded architecture — which is why the queue's state machine came from an observed
+**ElasticMQ** session rather than a description of one. That session surfaced a detail no
+prose summary mentions: the receipt handle is regenerated on every redelivery, so a stalled
+worker's late `delete` is rejected rather than deleting another consumer's work. The
+in-memory queue reproduces it and a test asserts it.
 
-The honest summary is this: **AI accelerated production and did not improve judgement.**
-It was fast at scaffolding, at surveying broker options, and at drafting. It failed in
-three recognisable ways — expired facts, plausible answers to the wrong problem, and
-badly-reasoned conclusions from correct facts. Each needs a different correction, and all
-three need someone who knows what they are looking at.
-
----
+The honest summary: **AI accelerated production and did not improve judgement.** Everything
+above is the shape of the work that had to go around it.
 
 ## Project layout
 
