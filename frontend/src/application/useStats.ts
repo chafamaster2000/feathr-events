@@ -6,11 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Bucket } from '../infrastructure/api'
-import type { CacheSample, Stats } from '../domain/types'
-
-// Roughly ninety seconds at the two-second poll — three TTL windows, enough to see the
-// sawtooth repeat rather than catch one edge of it.
-const WINDOW = 45
+import type { Stats } from '../domain/types'
 
 export function useStats(bucket: Bucket, refreshKey: number) {
   const [query, setQuery] = useState<Stats | null>(null)
@@ -23,11 +19,6 @@ export function useStats(bucket: Bucket, refreshKey: number) {
   const [cacheAgeMs, setCacheAgeMs] = useState<number | null>(null)
   const recomputedAt = useRef<number | null>(null)
 
-  // The pair, sampled over time. This is the only shape that can show what the cache
-  // actually does: the cached line flat while the true one climbs, then the step when the
-  // TTL lapses. A bar chart of buckets cannot express it — measured live, the cache held
-  // 0 for thirty seconds while the truth reached 1,300.
-  const [history, setHistory] = useState<CacheSample[]>([])
   // Round trips, measured from the browser. Both include the proxy hop, so the absolute
   // figures are inflated and only their difference means anything.
   const [latency, setLatency] = useState<{ query: number; realtime: number } | null>(null)
@@ -43,7 +34,12 @@ export function useStats(bucket: Bucket, refreshKey: number) {
         return res
       })
       const startedRealtime = performance.now()
-      const rp = api.statsRealtime(bucket).then((res) => {
+      // Always `live`, never the tab's bucket. The two views ask different questions now:
+      // one is history at the granularity you pick, the other is the last ten minutes at
+      // ten-second resolution. Sharing a bucket made the live view inherit `hourly`, and
+      // at that granularity the current hour is one bar that grows for sixty minutes —
+      // nothing it returned could change while you watched it.
+      const rp = api.statsRealtime('live').then((res) => {
         setLatency((prev) => ({
           query: prev?.query ?? 0,
           realtime: Math.round(performance.now() - startedRealtime),
@@ -55,11 +51,6 @@ export function useStats(bucket: Bucket, refreshKey: number) {
       setRealtime(r)
       if (!r.cached) recomputedAt.current = Date.now()
       setCacheAgeMs(recomputedAt.current === null ? null : Date.now() - recomputedAt.current)
-      setHistory((prev) =>
-        [...prev, { at: Date.now(), truth: q.total, cache: r.total, cached: !!r.cached }].slice(
-          -WINDOW,
-        ),
-      )
       setStale(false)
     } catch {
       // Keep the last reading and mark it, rather than blanking the panel. A transient
@@ -69,11 +60,10 @@ export function useStats(bucket: Bucket, refreshKey: number) {
   }, [bucket])
 
   useEffect(() => {
-    setHistory([])
     void load()
     const id = setInterval(() => void load(), 2000)
     return () => clearInterval(id)
   }, [load, refreshKey])
 
-  return { query, realtime, stale, cacheAgeMs, history, latency, reload: load }
+  return { query, realtime, stale, cacheAgeMs, latency, reload: load }
 }

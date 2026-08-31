@@ -138,14 +138,23 @@ it is term-level rather than analysed. The trade-off is explained in `ARCHITECTU
 
 ### `GET /events/stats/realtime`
 
-The same aggregation as `/events/stats`, served from Redis with a TTL. **The only cached
-endpoint** — its contract already promises a summary rather than an exact figure.
+Recent arrivals at fine granularity: **ten-second bins over the last ten minutes**, which
+is what makes the name honest. It defaulted to `hourly` once, and at that granularity the
+current hour is a single bar that grows for sixty minutes — nothing it returned could
+change visibly while you watched it.
 
-Returns `cached` and `ttl_seconds` so the cache is observable from outside:
+**The only cached endpoint**, because a live view polls it constantly and its contract
+promises a recent summary rather than an exact figure. `cached`, `ttl_seconds` and `since`
+come back with the payload, so both the staleness and the window are observable:
 
 ```jsonc
-{"bucket": "hourly", "total": 201, "buckets": [...], "cached": true, "ttl_seconds": 30}
+{"bucket": "live", "since": "2026-08-31T03:28:00", "total": 1240,
+ "buckets": [...], "cached": true, "ttl_seconds": 30}
 ```
+
+Note that the aggregation returns only the bins that hold events. A client drawing a live
+axis has to build it from `since` and the clock, or scattered moments render side by side
+as though they were consecutive.
 
 ### `GET /health`
 

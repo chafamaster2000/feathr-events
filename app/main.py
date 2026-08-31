@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -207,28 +207,46 @@ async def search_terms(
     return await request.app.state.queries.search_terms(limit=limit, starts_with=q)
 
 
+# The live window, and the reason this route can be called realtime at all. Ten minutes
+# of ten-second bins is sixty columns: fine enough that a burst shows up as a spike where
+# it happened, short enough that the payload stays small and the chart keeps moving.
+LIVE_WINDOW = timedelta(minutes=10)
+
+
 @app.get("/events/stats/realtime", tags=["query"])
 async def stats_realtime(
     request: Request,
-    bucket: Bucket = Bucket.HOURLY,
+    bucket: Bucket = Bucket.LIVE,
     event_type: str | None = None,
 ) -> dict:
-    """The only endpoint that goes through the cache.
+    """Recent arrivals at fine granularity — the only endpoint that goes through the cache.
 
-    Its name already admits what it returns: a summary, not the truth. That is why it can
-    be served from Redis with a TTL without breaking any promise.
+    It defaults to ten-second bins over the last ten minutes, which is what makes the name
+    honest. It used to default to `hourly`, and at that granularity the current hour is a
+    single bar that grows for sixty minutes: nothing this endpoint returned could change
+    visibly while you watched it, whatever it was called.
 
-    Returns `cached` so the cache is observable from outside.
+    Cached because a live view polls it constantly and its contract already promises a
+    recent summary rather than an exact figure. `cached` and `since` come back with the
+    payload so both the staleness and the window are observable from outside.
     """
     state = request.app.state
-    key = state.cache.key(bucket=bucket.value, event_type=event_type)
+    # Truncated to the bin, so the key is stable for the length of a bin instead of moving
+    # with every request and turning the cache into a write-only store.
+    since = (
+        datetime.now(UTC).replace(tzinfo=None, microsecond=0).replace(second=0) - LIVE_WINDOW
+        if bucket in (Bucket.LIVE, Bucket.MINUTE)
+        else None
+    )
+    key = state.cache.key(bucket=bucket.value, event_type=event_type, since=since)
 
     if (hit := await state.cache.get(key)) is not None:
         return {**hit, "cached": True, "ttl_seconds": state.cache.ttl}
 
-    data = await state.queries.stats(bucket=bucket, event_type=event_type)
-    await state.cache.set(key, data)
-    return {**data, "cached": False, "ttl_seconds": state.cache.ttl}
+    data = await state.queries.stats(bucket=bucket, since=since, event_type=event_type)
+    payload = {**data, "since": since}
+    await state.cache.set(key, payload)
+    return {**payload, "cached": False, "ttl_seconds": state.cache.ttl}
 
 
 @app.get("/health", tags=["ops"])

@@ -45,6 +45,9 @@ export interface Stats {
   /** Only present on /events/stats/realtime - the cached endpoint. */
   cached?: boolean
   ttl_seconds?: number
+  /** Start of the live window, so the client can draw a true axis rather than infer one
+   *  from the bins that happen to contain events. */
+  since?: string
 }
 
 /**
@@ -66,15 +69,4 @@ export interface DepthSample {
   visible: number
   inFlight: number
   processed: number
-}
-
-/** One paired reading of the two stats endpoints, for the cache chart. */
-export interface CacheSample {
-  at: number
-  /** `/events/stats` — recomputed on every call. */
-  truth: number
-  /** `/events/stats/realtime` — whatever Redis is holding. */
-  cache: number
-  /** False means this poll paid for the aggregation and refilled the cache. */
-  cached: boolean
 }

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import type { useStats } from '../application/useStats'
-import CacheChart from './CacheChart'
+import LiveChart from './LiveChart'
 import type { Bucket } from '../infrastructure/api'
 import type { Stats } from '../domain/types'
 
@@ -15,8 +15,8 @@ const SERIES = ['#19263c', '#0d9bb4', '#7b5cd6', '#c47f0a', '#0b7a52', '#c02434'
 // dashboard sense of continuously polled, never in the sense of current. Repeating that
 // word on the tab handed the reader the wrong idea before they saw a single number.
 const TABS = [
-  { id: 'query', label: 'Computed · MongoDB' },
-  { id: 'realtime', label: 'Cached · Redis' },
+  { id: 'query', label: 'History · MongoDB' },
+  { id: 'realtime', label: 'Live · Redis' },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -174,7 +174,7 @@ export default function StatsPanel({
   stats: ReturnType<typeof useStats>
 }) {
   const [tab, setTab] = useState<TabId>('query')
-  const { query, realtime, stale, history, latency, cacheAgeMs } = stats
+  const { query, realtime, stale, latency, cacheAgeMs } = stats
 
   const shown = tab === 'query' ? query : realtime
 
@@ -223,8 +223,12 @@ export default function StatsPanel({
       </div>
 
       <div className="row" style={{ marginBottom: 14 }}>
+        {/* The granularity named here has to be the one on screen. It read the History
+            tab's bucket in both views, so the live chart announced itself as "hourly"
+            while drawing ten-second bins. */}
         <span className="pill">
-          {(shown?.total ?? 0).toLocaleString('en-US')} events · {bucket}
+          {(shown?.total ?? 0).toLocaleString('en-US')} events ·{' '}
+          {tab === 'query' ? bucket : 'last 10 min'}
         </span>
         {stale && (
           <span className="pill" style={{ borderColor: 'var(--inflight)', color: 'var(--inflight)' }}>
@@ -250,18 +254,30 @@ export default function StatsPanel({
         </div>
 
         <div className="swap-view" data-on={tab === 'realtime'} aria-hidden={tab !== 'realtime'}>
-          <CacheChart
-            samples={history}
-            latency={latency}
-            ageMs={cacheAgeMs}
-            ttl={realtime?.ttl_seconds}
-          />
+          <LiveChart stats={realtime} />
+          <div className="row" style={{ marginTop: 10 }}>
+            <span className="pill">
+              {realtime?.cached ? 'served from cache' : 'recomputed'}
+            </span>
+            <span className="pill">
+              {Math.round((cacheAgeMs ?? 0) / 1000)}s old · {realtime?.ttl_seconds ?? '—'}s
+              ceiling
+            </span>
+            {latency && (
+              <span className="pill">
+                mongo {latency.query}ms · redis {latency.realtime}ms
+              </span>
+            )}
+          </div>
           <p className="note">
-            The same aggregation, served from Redis with a TTL — the only cached read,
-            because it is the only one whose contract promises a summary rather than an
-            exact figure. Send a burst and watch the gap open while the cached line holds
-            flat, then close in one step when the TTL lapses. That sawtooth is the trade:
-            bounded staleness, on purpose.
+            Arrivals as they land, in ten-second bins over the last ten minutes. Quiet time
+            occupies space here: the aggregation returns only the bins that hold events, so
+            the axis is drawn from the clock rather than from the response — otherwise
+            three scattered moments would sit side by side as though they were consecutive.
+            It is the one read served from Redis, because a view that polls constantly is
+            exactly what a cache is for, and its contract promises a recent summary rather
+            than an exact figure — so it can be up to{' '}
+            {realtime?.ttl_seconds ?? 30}s behind, and says so.
           </p>
         </div>
       </div>

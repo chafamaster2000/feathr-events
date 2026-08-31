@@ -57,7 +57,9 @@ export const api = {
   reset: () => client.post<{ status: string }>('/demo/reset').then((r) => r.data),
 }
 
-export type Bucket = 'hourly' | 'daily' | 'weekly'
+// 'live' is ten-second bins and 'minute' is minutes — the two granularities that make a
+// live view possible. The realtime endpoint defaults to 'live'.
+export type Bucket = 'live' | 'minute' | 'hourly' | 'daily' | 'weekly'
 
 export interface NewEvent {
   event_type: string

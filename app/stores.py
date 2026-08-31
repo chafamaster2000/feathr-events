@@ -88,10 +88,17 @@ class MongoEventStore:
         """
         await self._col.create_index([("event_type", 1), ("timestamp", -1)], name="type_time")
         await self._col.create_index([("user_id", 1), ("timestamp", -1)], name="user_time")
-        # Deliberately not created: `metadata.*` (an open key space — that is what
-        # Elasticsearch is for), `source_url` alone (low selectivity) and `timestamp`
-        # alone (already the suffix of both compound indexes). Every extra index is a
-        # slower write on the hot path.
+        # `timestamp` alone earns its place now, and did not before. The argument against
+        # it was that it is already the suffix of both compound indexes — true, and useless
+        # to a query that leads with it, because a suffix is not a prefix (ESR again). It
+        # was harmless while every read filtered by type or by user first. The live stats
+        # window filters by time and nothing else, and a view that polls it every two
+        # seconds was scanning the whole collection to do it: measured at 620 documents
+        # examined and 0 index keys.
+        await self._col.create_index([("timestamp", -1)], name="time_desc")
+        # Still deliberately absent: `metadata.*` (an open key space — that is what
+        # Elasticsearch is for) and `source_url` alone (low selectivity). Every extra index
+        # is a slower write on the hot path.
 
 
 class ElasticEventIndex:

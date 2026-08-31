@@ -37,12 +37,26 @@ class Bucket(StrEnum):
     invalid bucket must be a 422 from the client, not a pipeline that explodes in
     MongoDB."""
 
+    # Ten seconds is the finest, and it exists because "realtime" was a promise the
+    # granularity could not keep: with `hourly` as the floor, the current hour is one bar
+    # that grows for sixty minutes, so a burst of five hundred events is invisible the
+    # moment it lands. A live view needs bins shorter than the thing being watched.
+    LIVE = "live"
+    MINUTE = "minute"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
 
 
-_MONGO_UNIT = {Bucket.HOURLY: "hour", Bucket.DAILY: "day", Bucket.WEEKLY: "week"}
+# `$dateTrunc` arguments per bucket. A dict rather than a bare unit because the finest
+# bin is a `binSize` of the second unit, which no single unit name can express.
+_MONGO_TRUNC: dict[Bucket, dict[str, Any]] = {
+    Bucket.LIVE: {"unit": "second", "binSize": 10},
+    Bucket.MINUTE: {"unit": "minute"},
+    Bucket.HOURLY: {"unit": "hour"},
+    Bucket.DAILY: {"unit": "day"},
+    Bucket.WEEKLY: {"unit": "week"},
+}
 
 
 # A suggestion prefix reaches Elasticsearch inside a regex, and it is a user's keystrokes.
@@ -132,9 +146,7 @@ class EventQueries:
             {
                 "$group": {
                     "_id": {
-                        "bucket": {
-                            "$dateTrunc": {"date": "$timestamp", "unit": _MONGO_UNIT[bucket]}
-                        },
+                        "bucket": {"$dateTrunc": {"date": "$timestamp", **_MONGO_TRUNC[bucket]}},
                         "event_type": "$event_type",
                     },
                     "count": {"$sum": 1},
