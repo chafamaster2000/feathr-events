@@ -6,11 +6,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Bucket } from '../infrastructure/api'
-import type { Stats } from '../domain/types'
+import type { LiveSummary, Stats } from '../domain/types'
 
 export function useStats(bucket: Bucket, refreshKey: number) {
   const [query, setQuery] = useState<Stats | null>(null)
-  const [realtime, setRealtime] = useState<Stats | null>(null)
+  const [realtime, setRealtime] = useState<LiveSummary | null>(null)
   const [stale, setStale] = useState(false)
   // How long the cached figure has been standing. The endpoint reports the *configured*
   // TTL, which never moves and therefore says nothing about the value in front of you.
@@ -34,12 +34,11 @@ export function useStats(bucket: Bucket, refreshKey: number) {
         return res
       })
       const startedRealtime = performance.now()
-      // Always `live`, never the tab's bucket. The two views ask different questions now:
-      // one is history at the granularity you pick, the other is the last ten minutes at
+      // No bucket. The two views ask different questions now: one is history at the
+      // granularity you pick, the other is a summary of the last ten minutes at
       // ten-second resolution. Sharing a bucket made the live view inherit `hourly`, and
-      // at that granularity the current hour is one bar that grows for sixty minutes —
-      // nothing it returned could change while you watched it.
-      const rp = api.statsRealtime('live').then((res) => {
+      // at that granularity the current hour is one bar that grows for sixty minutes.
+      const rp = api.liveSummary().then((res) => {
         setLatency((prev) => ({
           query: prev?.query ?? 0,
           realtime: Math.round(performance.now() - startedRealtime),

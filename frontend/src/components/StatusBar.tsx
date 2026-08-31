@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import type { DepthSample, Health, QueueStats, Stats } from '../domain/types'
+import type { DepthSample, Health, LiveSummary, QueueStats } from '../domain/types'
 import DepthChart from './DepthChart'
 
 /** Dependencies and worker counters. /health returns 503 when any dependency is down. */
@@ -19,7 +19,7 @@ export default function StatusBar({
   history: DepthSample[]
   /** The last answer from the cached endpoint. `/health` only proves Redis replies to a
    *  ping — it says nothing about whether the cache is doing its job. */
-  cache: Stats | null
+  cache: LiveSummary | null
   cacheAgeMs: number | null
 }) {
   const deps = health?.dependencies

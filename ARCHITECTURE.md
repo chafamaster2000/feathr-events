@@ -193,10 +193,19 @@ invalidation would require knowing which cached entries each incoming event affe
 evaluating every cached key against every write. In a pipeline built for high write
 volume, that costs more than the aggregation being avoided.
 
-The real argument is that **the staleness already exists upstream**. Ingestion is
-asynchronous, so an accepted event is not in MongoDB yet either. A 30-second TTL
-introduces no new inconsistency; it puts a known ceiling on inconsistency that was
-already there.
+It is tempting to argue that **the staleness already exists upstream** — ingestion is
+asynchronous, so an accepted event is not in MongoDB yet either — and therefore the TTL
+introduces no new inconsistency. That argument is weaker than it sounds, and measuring it
+says so: from `POST` to visible in MongoDB is **2-48ms**, bimodal because an idle worker
+task sleeps 50ms between polls. A 10-second TTL is two to three orders of magnitude larger
+than the lag it claims to be a ceiling on. **The cache is the dominant staleness in the
+read path**, not a rounding error on top of one that was already there.
+
+The honest argument is narrower, and enough: this endpoint's contract promises a recent
+summary rather than an exact figure, so a bounded lag does not break it — and the bound is
+chosen to match what the endpoint serves. Ten seconds is the live bin. A longer ceiling
+would make the newest bins of a *live* view its least trustworthy part, which is exactly
+where the eye goes; a shorter one buys freshness with nowhere to show up.
 
 This is observable rather than asserted. Immediately after ingesting one event:
 

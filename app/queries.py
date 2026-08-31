@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -37,26 +37,19 @@ class Bucket(StrEnum):
     invalid bucket must be a 422 from the client, not a pipeline that explodes in
     MongoDB."""
 
-    # Ten seconds is the finest, and it exists because "realtime" was a promise the
-    # granularity could not keep: with `hourly` as the floor, the current hour is one bar
-    # that grows for sixty minutes, so a burst of five hundred events is invisible the
-    # moment it lands. A live view needs bins shorter than the thing being watched.
-    LIVE = "live"
-    MINUTE = "minute"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
 
 
-# `$dateTrunc` arguments per bucket. A dict rather than a bare unit because the finest
-# bin is a `binSize` of the second unit, which no single unit name can express.
-_MONGO_TRUNC: dict[Bucket, dict[str, Any]] = {
-    Bucket.LIVE: {"unit": "second", "binSize": 10},
-    Bucket.MINUTE: {"unit": "minute"},
-    Bucket.HOURLY: {"unit": "hour"},
-    Bucket.DAILY: {"unit": "day"},
-    Bucket.WEEKLY: {"unit": "week"},
-}
+_MONGO_UNIT = {Bucket.HOURLY: "hour", Bucket.DAILY: "day", Bucket.WEEKLY: "week"}
+
+# The live window. Ten minutes of ten-second bins is sixty numbers: fine enough that a
+# burst appears where it happened, small enough to stay a summary. The cache TTL in
+# config.py should track LIVE_BIN_SECONDS - a ceiling longer than a bin makes the newest
+# bins of a live view the least trustworthy part of it.
+LIVE_WINDOW_SECONDS = 600
+LIVE_BIN_SECONDS = 10
 
 
 # A suggestion prefix reaches Elasticsearch inside a regex, and it is a user's keystrokes.
@@ -146,7 +139,9 @@ class EventQueries:
             {
                 "$group": {
                     "_id": {
-                        "bucket": {"$dateTrunc": {"date": "$timestamp", **_MONGO_TRUNC[bucket]}},
+                        "bucket": {
+                            "$dateTrunc": {"date": "$timestamp", "unit": _MONGO_UNIT[bucket]}
+                        },
                         "event_type": "$event_type",
                     },
                     "count": {"$sum": 1},
@@ -165,6 +160,82 @@ class EventQueries:
 
         rows = [row async for row in await self._col.aggregate(pipeline)]
         return {"bucket": bucket.value, "total": sum(r["count"] for r in rows), "buckets": rows}
+
+    async def live_summary(
+        self,
+        *,
+        window_seconds: int = LIVE_WINDOW_SECONDS,
+        bin_seconds: int = LIVE_BIN_SECONDS,
+        event_type: str | None = None,
+    ) -> dict[str, Any]:
+        """A lightweight summary of recent arrivals — totals per type, plus one dense
+        series of counts per bin.
+
+        Deliberately not the same shape as `stats`. A grid of bin x type is the honest
+        thing to *store*, and the wrong thing to send: sixty bins across five types is
+        three hundred rows and roughly 22KB, polled every couple of seconds, for an
+        endpoint whose contract is a lightweight summary. Collapsing to one array of
+        totals plus one row per type is the same information at the resolution anyone can
+        actually read, in a few hundred bytes.
+
+        The series is dense and ordered oldest to newest. The aggregation only returns
+        bins that hold events, so filling the gaps here rather than at the caller is what
+        keeps quiet time occupying space: three scattered moments must not render as three
+        consecutive ones.
+        """
+        # Truncated to the bin, so the window is stable for the length of one bin instead
+        # of sliding with every request - which is also what lets the cache key hold.
+        now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        end = now - timedelta(seconds=now.second % bin_seconds)
+        since = end - timedelta(seconds=window_seconds)
+
+        query = self._filter(event_type, None, None, since, None)
+        rows = [
+            row
+            async for row in await self._col.aggregate(
+                [
+                    {"$match": query},
+                    {
+                        "$group": {
+                            "_id": {
+                                "bin": {
+                                    "$dateTrunc": {
+                                        "date": "$timestamp",
+                                        "unit": "second",
+                                        "binSize": bin_seconds,
+                                    }
+                                },
+                                "event_type": "$event_type",
+                            },
+                            "count": {"$sum": 1},
+                        }
+                    },
+                ]
+            )
+        ]
+
+        slots = window_seconds // bin_seconds
+        series = [0] * (slots + 1)
+        by_type: dict[str, int] = {}
+        for row in rows:
+            index = int((row["_id"]["bin"] - since).total_seconds()) // bin_seconds
+            if 0 <= index < len(series):
+                series[index] += row["count"]
+            by_type[row["_id"]["event_type"]] = (
+                by_type.get(row["_id"]["event_type"], 0) + row["count"]
+            )
+
+        return {
+            "since": since,
+            "window_seconds": window_seconds,
+            "bin_seconds": bin_seconds,
+            "total": sum(series),
+            "by_type": [
+                {"event_type": t, "count": c}
+                for t, c in sorted(by_type.items(), key=lambda kv: -kv[1])
+            ],
+            "series": series,
+        }
 
     # ---- Elasticsearch ------------------------------------------------------
 

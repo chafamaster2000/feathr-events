@@ -21,7 +21,7 @@ from app.config import settings
 from app.models import Event, EventAccepted, EventIn
 from app.observability import AgentLoggerMiddleware
 from app.observability import log as agent_log
-from app.queries import Bucket, EventQueries
+from app.queries import LIVE_BIN_SECONDS, Bucket, EventQueries
 from app.queue import InMemoryEventQueue, QueueFull
 from app.stores import COLLECTION, ElasticEventIndex, MongoEventStore
 from app.worker import EventWorker
@@ -207,46 +207,40 @@ async def search_terms(
     return await request.app.state.queries.search_terms(limit=limit, starts_with=q)
 
 
-# The live window, and the reason this route can be called realtime at all. Ten minutes
-# of ten-second bins is sixty columns: fine enough that a burst shows up as a spike where
-# it happened, short enough that the payload stays small and the chart keeps moving.
-LIVE_WINDOW = timedelta(minutes=10)
-
-
 @app.get("/events/stats/realtime", tags=["query"])
 async def stats_realtime(
     request: Request,
-    bucket: Bucket = Bucket.LIVE,
     event_type: str | None = None,
 ) -> dict:
-    """Recent arrivals at fine granularity — the only endpoint that goes through the cache.
+    """A lightweight summary of recent activity, served from Redis with a configurable TTL.
 
-    It defaults to ten-second bins over the last ten minutes, which is what makes the name
-    honest. It used to default to `hourly`, and at that granularity the current hour is a
-    single bar that grows for sixty minutes: nothing this endpoint returned could change
-    visibly while you watched it, whatever it was called.
+    Recent at a resolution you can watch: totals per type over the last ten minutes, plus
+    one dense array of counts per ten-second bin. It used to answer with the same hourly
+    aggregation as `/events/stats`, and at that granularity the current hour is a single
+    bar that grows for sixty minutes — nothing it returned could change visibly while you
+    watched it, whatever the route was called.
 
-    Cached because a live view polls it constantly and its contract already promises a
-    recent summary rather than an exact figure. `cached` and `since` come back with the
-    payload so both the staleness and the window are observable from outside.
+    Lightweight is part of the contract, so the shape is a summary rather than a grid:
+    sixty bins across five types would be three hundred rows and roughly 22KB on an
+    endpoint a live view polls every couple of seconds.
+
+    Cached because polling constantly is exactly what a cache is for, and because this is
+    the one read whose contract promises a summary rather than an exact figure. `cached`
+    and `ttl_seconds` come back with it, so the staleness is observable from outside.
     """
     state = request.app.state
-    # Truncated to the bin, so the key is stable for the length of a bin instead of moving
+    # The window is truncated to the bin, so the key holds for a bin instead of moving
     # with every request and turning the cache into a write-only store.
-    since = (
-        datetime.now(UTC).replace(tzinfo=None, microsecond=0).replace(second=0) - LIVE_WINDOW
-        if bucket in (Bucket.LIVE, Bucket.MINUTE)
-        else None
-    )
-    key = state.cache.key(bucket=bucket.value, event_type=event_type, since=since)
+    bin_now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+    slot = bin_now - timedelta(seconds=bin_now.second % LIVE_BIN_SECONDS)
+    key = state.cache.key(view="live", event_type=event_type, slot=slot)
 
     if (hit := await state.cache.get(key)) is not None:
         return {**hit, "cached": True, "ttl_seconds": state.cache.ttl}
 
-    data = await state.queries.stats(bucket=bucket, since=since, event_type=event_type)
-    payload = {**data, "since": since}
-    await state.cache.set(key, payload)
-    return {**payload, "cached": False, "ttl_seconds": state.cache.ttl}
+    data = await state.queries.live_summary(event_type=event_type)
+    await state.cache.set(key, data)
+    return {**data, "cached": False, "ttl_seconds": state.cache.ttl}
 
 
 @app.get("/health", tags=["ops"])

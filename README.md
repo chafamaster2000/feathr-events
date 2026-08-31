@@ -52,7 +52,7 @@ default in [`app/config.py`](./app/config.py). The settings worth knowing:
 | `VISIBILITY_TIMEOUT` | `30.0` | How long a message stays invisible while a consumer holds it |
 | `MAX_RECEIVES` | `5` | Delivery attempts before a message is dead-lettered |
 | `QUEUE_MAXSIZE` | `10000` | Bounded on purpose. When full the API returns `429` |
-| `STATS_CACHE_TTL` | `30` | Staleness ceiling for `/events/stats/realtime` |
+| `STATS_CACHE_TTL` | `10` | Staleness ceiling for `/events/stats/realtime`. Matches the live bin: a ceiling longer than a bin makes the newest bins of a live view the least trustworthy part of it |
 
 ### If MongoDB will not start
 
@@ -138,23 +138,33 @@ it is term-level rather than analysed. The trade-off is explained in `ARCHITECTU
 
 ### `GET /events/stats/realtime`
 
-Recent arrivals at fine granularity: **ten-second bins over the last ten minutes**, which
-is what makes the name honest. It defaulted to `hourly` once, and at that granularity the
-current hour is a single bar that grows for sixty minutes — nothing it returned could
-change visibly while you watched it.
+A **lightweight stats summary** of recent activity, served from Redis with a configurable
+TTL — totals per type over the last ten minutes, plus one dense array of counts per
+ten-second bin.
 
-**The only cached endpoint**, because a live view polls it constantly and its contract
-promises a recent summary rather than an exact figure. `cached`, `ttl_seconds` and `since`
-come back with the payload, so both the staleness and the window are observable:
+It answered with the same hourly aggregation as `/events/stats` at first, and at that
+granularity the current hour is a single bar that grows for sixty minutes: nothing it
+returned could change visibly while you watched it. Fine bins fixed that and broke
+something else — sixty bins across five types is three hundred rows and roughly 22KB on an
+endpoint a live view polls every couple of seconds, which is not a summary. The shape below
+is both: **456 bytes** measured, against 22KB for the grid.
 
 ```jsonc
-{"bucket": "live", "since": "2026-08-31T03:28:00", "total": 1240,
- "buckets": [...], "cached": true, "ttl_seconds": 30}
+{
+  "since": "2026-08-31T03:35:00",
+  "window_seconds": 600,
+  "bin_seconds": 10,
+  "total": 3502,
+  "by_type": [{"event_type": "pageview", "count": 703}, ...],
+  "series": [0, 0, 120, 480, ...],   // 61 ints, oldest to newest, gaps filled
+  "cached": true,
+  "ttl_seconds": 10
+}
 ```
 
-Note that the aggregation returns only the bins that hold events. A client drawing a live
-axis has to build it from `since` and the clock, or scattered moments render side by side
-as though they were consecutive.
+`series` is dense on purpose. The aggregation only finds the bins that hold events; the
+gaps are filled server-side, because a client that draws only what comes back renders three
+scattered moments as three consecutive ones.
 
 ### `GET /health`
 

@@ -4,7 +4,7 @@
 // browser makes same-origin requests and the backend needs no CORS configuration.
 
 import axios from 'axios'
-import type { FeathrEvent, Health, Stats } from '../domain/types'
+import type { FeathrEvent, Health, LiveSummary, Stats } from '../domain/types'
 
 const client = axios.create({ baseURL: '/api', timeout: 10_000 })
 
@@ -49,17 +49,15 @@ export const api = {
   stats: (bucket: Bucket = 'daily') =>
     client.get<Stats>('/events/stats', { params: { bucket } }).then((r) => r.data),
 
-  /** The only cached read. Returns `cached` so staleness is observable from outside. */
-  statsRealtime: (bucket: Bucket = 'hourly') =>
-    client.get<Stats>('/events/stats/realtime', { params: { bucket } }).then((r) => r.data),
+  /** The one cached read. No bucket: it answers a single question — what arrived in the
+   *  last few minutes — and answers it as a summary rather than a grid. */
+  liveSummary: () => client.get<LiveSummary>('/events/stats/realtime').then((r) => r.data),
 
   /** Demo affordance. Absent unless the API runs with DEMO_MODE enabled. */
   reset: () => client.post<{ status: string }>('/demo/reset').then((r) => r.data),
 }
 
-// 'live' is ten-second bins and 'minute' is minutes — the two granularities that make a
-// live view possible. The realtime endpoint defaults to 'live'.
-export type Bucket = 'live' | 'minute' | 'hourly' | 'daily' | 'weekly'
+export type Bucket = 'hourly' | 'daily' | 'weekly'
 
 export interface NewEvent {
   event_type: string

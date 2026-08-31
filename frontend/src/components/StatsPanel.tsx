@@ -228,7 +228,9 @@ export default function StatsPanel({
             while drawing ten-second bins. */}
         <span className="pill">
           {(shown?.total ?? 0).toLocaleString('en-US')} events ·{' '}
-          {tab === 'query' ? bucket : 'last 10 min'}
+          {tab === 'query'
+            ? bucket
+            : `last ${Math.round((realtime?.window_seconds ?? 600) / 60)} min`}
         </span>
         {stale && (
           <span className="pill" style={{ borderColor: 'var(--inflight)', color: 'var(--inflight)' }}>
@@ -254,7 +256,7 @@ export default function StatsPanel({
         </div>
 
         <div className="swap-view" data-on={tab === 'realtime'} aria-hidden={tab !== 'realtime'}>
-          <LiveChart stats={realtime} />
+          <LiveChart live={realtime} />
           <div className="row" style={{ marginTop: 10 }}>
             <span className="pill">
               {realtime?.cached ? 'served from cache' : 'recomputed'}
@@ -270,14 +272,16 @@ export default function StatsPanel({
             )}
           </div>
           <p className="note">
-            Arrivals as they land, in ten-second bins over the last ten minutes. Quiet time
-            occupies space here: the aggregation returns only the bins that hold events, so
-            the axis is drawn from the clock rather than from the response — otherwise
-            three scattered moments would sit side by side as though they were consecutive.
-            It is the one read served from Redis, because a view that polls constantly is
-            exactly what a cache is for, and its contract promises a recent summary rather
-            than an exact figure — so it can be up to{' '}
-            {realtime?.ttl_seconds ?? 30}s behind, and says so.
+            Arrivals as they land, in ten-second bins over the last ten minutes. A summary,
+            not a grid: sixty bins across five types would be three hundred rows on an
+            endpoint polled every couple of seconds, so it answers with one dense array of
+            counts and one total per type — a few hundred bytes. Dense matters. The
+            aggregation only finds the bins that hold events, and the gaps are filled
+            server-side, or quiet time would collapse and scattered moments would sit side
+            by side as though they were consecutive. It is the one read served from Redis,
+            because polling constantly is exactly what a cache is for, and its contract
+            promises a recent summary rather than an exact figure — so it can be up to{' '}
+            {realtime?.ttl_seconds ?? 10}s behind, and says so.
           </p>
         </div>
       </div>

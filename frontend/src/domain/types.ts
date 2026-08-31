@@ -45,9 +45,6 @@ export interface Stats {
   /** Only present on /events/stats/realtime - the cached endpoint. */
   cached?: boolean
   ttl_seconds?: number
-  /** Start of the live window, so the client can draw a true axis rather than infer one
-   *  from the bins that happen to contain events. */
-  since?: string
 }
 
 /**
@@ -69,4 +66,24 @@ export interface DepthSample {
   visible: number
   inFlight: number
   processed: number
+}
+
+/**
+ * `/events/stats/realtime` — a lightweight summary of the last few minutes.
+ *
+ * Deliberately not the `Stats` shape. A grid of bin x type is three hundred rows for the
+ * same window; this is one dense array plus one row per type, which is the same reading
+ * at a resolution anyone can take in, in a few hundred bytes.
+ */
+export interface LiveSummary {
+  since: string
+  window_seconds: number
+  bin_seconds: number
+  total: number
+  by_type: { event_type: string; count: number }[]
+  /** Counts per bin, dense and ordered oldest to newest. Gaps are zeros, filled by the
+   *  server, so quiet time occupies space without the client rebuilding the axis. */
+  series: number[]
+  cached: boolean
+  ttl_seconds: number
 }

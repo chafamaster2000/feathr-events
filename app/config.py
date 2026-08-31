@@ -30,9 +30,21 @@ class Settings(BaseSettings):
     queue_maxsize: int = 10_000
 
     # --- Cache ---
-    # 30s introduces no lag; it puts a ceiling on lag that already exists. Ingestion is
-    # asynchronous, so an accepted event is not in MongoDB yet either. See ARCHITECTURE.md §3.
-    stats_cache_ttl: int = 30
+    # Ten seconds, because that is the live bin. `/events/stats/realtime` serves
+    # ten-second bins, so a longer ceiling makes the newest bins of a *live* chart the
+    # least trustworthy part of it - at 30s the three rightmost bins could each be missing
+    # arrivals, and the right edge is exactly where the eye goes. At ten, the only
+    # unsettled bin is the current one, which is incomplete anyway because it is still
+    # filling. Going lower buys freshness with nowhere to show up.
+    #
+    # This number should track the LIVE bin size in queries.py. If that changes, change
+    # this. See ARCHITECTURE.md §3.
+    #
+    # An earlier comment here claimed 30s "introduces no lag; it puts a ceiling on lag that
+    # already exists". Measured, the pipeline's own lag from POST to visible in MongoDB is
+    # 2-48ms - so the cache was not a ceiling on existing lag, it was six hundred times it,
+    # and by far the dominant staleness in the read path.
+    stats_cache_ttl: int = 10
 
     # --- Demo ---
     # Off by default, and the destructive route is not even registered when it is off:
