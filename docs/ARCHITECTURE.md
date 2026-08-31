@@ -15,7 +15,7 @@ executing something, and the document says what.
 flowchart LR
     Client([Client])
 
-    subgraph proc ["one Python process (&quot;in-process&quot;)"]
+    subgraph proc ["one Python process — in-process"]
         direction LR
         API[FastAPI]
         Q["EventQueue<br/>(in RAM)"]
