@@ -73,7 +73,7 @@ async def test_cycle_ingest_worker_query(client: httpx.AsyncClient) -> None:
     # The queue is empty and nothing was dead-lettered: the message was acknowledged.
     health = (await client.get("/health")).json()
     assert health["queue"] == {"visible": 0, "in_flight": 0, "dlq": 0}
-    assert health["worker"]["failed"] == 0
+    assert health["worker"]["failed_attempts"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ async def test_cycle_dual_write_diverges_then_recovers(client: httpx.AsyncClient
 
     # The first attempt fails after MongoDB was already written: this is the divergence.
     await eventually(
-        lambda: worker.stats()["failed"] >= 1,
+        lambda: worker.stats()["failed_attempts"] >= 1,
         what="the first attempt failing on Elasticsearch",
     )
     assert await mongo_doc(client, event_id) is not None, "the source of truth has it"

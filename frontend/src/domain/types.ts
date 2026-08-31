@@ -10,7 +10,9 @@ export interface QueueStats {
 
 export interface WorkerStats {
   processed: number
-  failed: number
+  /** Write attempts that failed, not events. One poison message counts five; the
+   *  events that gave up for good are the queue's `dlq`. */
+  failed_attempts: number
   consumers: number
 }
 

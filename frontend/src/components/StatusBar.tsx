@@ -68,8 +68,8 @@ export default function StatusBar({
           >
             processed {health?.worker.processed ?? '…'}
           </motion.span>
-          <span className="pill" style={health?.worker.failed ? { color: 'var(--dead)' } : undefined}>
-            failed {health?.worker.failed ?? '…'}
+          <span className="pill" style={health?.worker.failed_attempts ? { color: 'var(--dead)' } : undefined}>
+            failed attempts {health?.worker.failed_attempts ?? '…'}
           </span>
         </div>
       </div>

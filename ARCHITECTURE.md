@@ -232,7 +232,10 @@ It is tempting to argue that **the staleness already exists upstream** — inges
 asynchronous, so an accepted event is not in MongoDB yet either — and therefore the TTL
 introduces no new inconsistency. That argument is weaker than it sounds, and measuring it
 says so: from `POST` to visible in MongoDB is **2-48ms**, bimodal because an idle worker
-task sleeps 50ms between polls. A 10-second TTL is two to three orders of magnitude larger
+task sleeps 50ms between polls. Note the store that number is about: `/events/search`
+takes roughly a second longer, because Elasticsearch's `refresh_interval` is left at its
+default of one second. Written and findable are different moments, and quoting only the
+first while being this precise about it would read as a claim about both. A 10-second TTL is two to three orders of magnitude larger
 than the lag it claims to be a ceiling on. **The cache is the dominant staleness in the
 read path**, not a rounding error on top of one that was already there.
 

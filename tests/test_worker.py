@@ -117,7 +117,7 @@ async def test_when_mongodb_fails_the_message_is_not_deleted(queue) -> None:
 
     worker = make_worker(queue, store, index)
     await worker.start()
-    await eventually(lambda: worker.stats()["failed"] >= 1)
+    await eventually(lambda: worker.stats()["failed_attempts"] >= 1)
     await worker.stop()
 
     assert index.indexed == {}  # Elasticsearch was never reached: MongoDB goes first
@@ -139,7 +139,7 @@ async def test_when_elasticsearch_fails_mongodb_still_has_it_and_the_message_ret
 
     worker = make_worker(queue, store, index)
     await worker.start()
-    await eventually(lambda: worker.stats()["failed"] >= 1)
+    await eventually(lambda: worker.stats()["failed_attempts"] >= 1)
 
     assert event.event_id in store.saved  # the source of truth has it
     assert index.indexed == {}  # the derived index does not

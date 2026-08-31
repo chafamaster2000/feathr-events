@@ -8,6 +8,8 @@ and not 201: when we answer, the event is in the queue, not stored.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -34,6 +36,40 @@ logging.basicConfig(
 log = logging.getLogger("feathr")
 
 
+def _refuse_multiple_processes() -> None:
+    """Fail loudly at startup rather than corrupting quietly at runtime.
+
+    The queue is `app.state.queue`, a variable in this interpreter. Two processes are two
+    queues that cannot see each other: events accepted by one are invisible to the other's
+    worker, `/health` reports a depth that is only a third of the truth, and nothing
+    errors. It is the worst kind of bug — no exception, no log line, wrong numbers.
+
+    This is stated in CLAUDE.md, in ARCHITECTURE.md §5 and in the docstring below, and
+    until now it was enforced nowhere. Writing "this fails silently in production" three
+    times is a design choosing prose over a guard.
+
+    It catches the way it actually happens: `uvicorn --workers N`, or the `WEB_CONCURRENCY`
+    environment variable uvicorn and gunicorn both read. It cannot catch two separate
+    containers behind a load balancer — that is a deployment decision no process can see
+    from the inside, and it is the reason §7 puts "move the queue out" first.
+    """
+    argv = sys.argv
+    requested = None
+    for flag in ("--workers", "-w"):
+        if flag in argv:
+            index = argv.index(flag)
+            requested = argv[index + 1] if index + 1 < len(argv) else "?"
+    requested = requested or os.environ.get("WEB_CONCURRENCY")
+
+    if requested is not None and requested not in ("1", "?"):
+        raise RuntimeError(
+            f"refusing to start with {requested} worker processes. The event queue is a "
+            "variable in one interpreter, so N processes are N queues that cannot see each "
+            "other and nothing reports an error. Scale with WORKER_CONCURRENCY, which adds "
+            "consumers inside this process. See ARCHITECTURE.md §5."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open connections, prepare the schemas, start the worker.
@@ -46,6 +82,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     process would have its own `app.state` and therefore its own queue, with none of them
     seeing the others. See ARCHITECTURE.md §5.
     """
+    _refuse_multiple_processes()
+
     log.info("starting: connecting to mongo / elasticsearch / redis")
     app.state.clients = await clients.connect()
 
@@ -72,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         concurrency=settings.worker_concurrency,
         batch_size=settings.worker_batch_size,
         poll_interval=settings.worker_poll_interval,
+        visibility_timeout=settings.visibility_timeout,
     )
     app.state.queries = EventQueries(
         app.state.clients.db, app.state.clients.elasticsearch, settings.elasticsearch_index
@@ -144,9 +183,14 @@ async def ingest(payload: EventIn, request: Request) -> EventAccepted:
         await request.app.state.queue.send(event)
     except QueueFull:
         # Backpressure: rejecting is honest; accepting and dying later is not.
+        # `Retry-After` because "retry later" is not actionable. A producer with no number
+        # either hammers or gives up, and both are worse than waiting a stated second. One
+        # second is the honest figure here: the queue drains in milliseconds per event, so
+        # a full queue is a burst rather than an outage.
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="the queue is full, retry later",
+            headers={"Retry-After": "1"},
         ) from None
     # The domain's own correlation id, recorded next to the transport-level one: this is
     # the id that survives every hop (queue -> worker -> MongoDB -> Elasticsearch).

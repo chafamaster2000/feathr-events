@@ -45,6 +45,7 @@ class EventWorker:
         concurrency: int = 8,
         batch_size: int = 10,
         poll_interval: float = 0.05,
+        visibility_timeout: float = 30.0,
     ) -> None:
         self._queue = queue
         self._store = store
@@ -52,6 +53,9 @@ class EventWorker:
         self._concurrency = concurrency
         self._batch_size = batch_size
         self._poll_interval = poll_interval
+        # Not the queue's business to tell us: the worker asks for the window it needs,
+        # which is what a consumer does in SQS too.
+        self._visibility = visibility_timeout
 
         self._tasks: list[asyncio.Task[None]] = []
         self._stopping = asyncio.Event()
@@ -107,7 +111,11 @@ class EventWorker:
     def stats(self) -> dict[str, int]:
         return {
             "processed": self._processed,
-            "failed": self._failed,
+            # Attempts, not events, and the name has to say so. Beside `processed` a bare
+            # `failed` reads as "events that failed", and one poison message inflates it
+            # by five - an operator could not tell one bad event from five lost ones. The
+            # count of events that gave up permanently is `dlq`, reported by the queue.
+            "failed_attempts": self._failed,
             "consumers": len(self._tasks),
         }
 
@@ -134,6 +142,19 @@ class EventWorker:
     async def _handle(self, message: Message, worker_id: int) -> None:
         event = message.event
         try:
+            # Claim the full window before starting, which is what the heartbeat is for.
+            #
+            # `receive` stamps one deadline across the whole batch, and the batch is
+            # processed serially, so the last message of ten inherits a clock that started
+            # nine writes ago. With a slow dependency the tail expires without ever having
+            # been attempted: another consumer picks it up with the delivery count already
+            # incremented, both work on it, and this one's delete is rejected as a stale
+            # handle. Retries get burned in exactly the conditions where retries matter.
+            #
+            # Extending here costs one dictionary write and makes the message's window
+            # start when work on it starts. The port defined this verb and nothing outside
+            # a test ever called it.
+            await self._queue.change_visibility(message.receipt_handle, self._visibility)
             # MongoDB FIRST, always.
             await self._store.upsert(event)
             await self._index.index(event)
