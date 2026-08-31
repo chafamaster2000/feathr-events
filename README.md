@@ -258,6 +258,11 @@ be worth recording rather than quietly editing:
   **only** when the API runs with `DEMO_MODE` enabled — not disabled behind a check,
   absent. A destructive endpoint that merely tests a flag is one configuration mistake
   away from being live.
+- `POST /demo/fault?dependency=…&down=…` simulates a dependency being unavailable, so
+  §6's failure modes can be watched instead of read. It flips one flag and the adapters
+  raise where a driver error would, so the code that handles it is the code that handles
+  the real thing. Registered only under `DEMO_MODE`, like the reset. It is **not** a
+  partition, a timeout or a slow dependency: it is the shape of a dependency refusing.
 - `GET /events/search/terms` returns the values a search box can suggest, from a terms
   aggregation over the real documents. It is a read like any other, bounded and cheap,
   and it is documented above with the rest. But it exists because a UI needed it, and a

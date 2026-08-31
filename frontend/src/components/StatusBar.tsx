@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import type { DepthSample, Health, LiveSummary, QueueStats } from '../domain/types'
 import DepthChart from './DepthChart'
+import FailureModes from './FailureModes'
 
 /** Dependencies and worker counters. /health returns 503 when any dependency is down. */
 /**
@@ -78,6 +79,8 @@ export default function StatusBar({
       </p>
 
       <DepthChart history={history} queue={health?.queue as QueueStats | undefined} />
+
+      <FailureModes health={health} />
     </div>
   )
 }

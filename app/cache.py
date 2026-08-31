@@ -25,6 +25,8 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from app.faults import guard
+
 log = logging.getLogger(__name__)
 
 PREFIX = "feathr:stats"
@@ -78,6 +80,7 @@ class StatsCache:
         contract is that it may serve a stale answer rather than fail.
         """
         try:
+            guard("redis")
             raw = await self._redis.get(key)
             return json.loads(raw) if raw else None
         except Exception:
@@ -86,6 +89,7 @@ class StatsCache:
 
     async def set(self, key: str, value: dict[str, Any]) -> None:
         try:
+            guard("redis")
             await self._redis.set(key, json.dumps(value, default=_encode), ex=self._ttl)
         except Exception:
             log.warning("cache write failed; continuing", exc_info=True)

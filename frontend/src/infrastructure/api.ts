@@ -14,7 +14,17 @@ export function withTaskId(taskId: string) {
 }
 
 export const api = {
-  health: () => client.get<Health>('/health').then((r) => r.data),
+  /** 503 is an answer, not a failure.
+   *
+   *  `/health` returns 200 when the three dependencies respond and 503 otherwise, with
+   *  the same body either way. Axios rejects any non-2xx by default, so the poll's catch
+   *  fired and the console kept the last healthy reading: every pill showed `up` at
+   *  exactly the moment something went down, under a banner claiming the API was not
+   *  answering. It was answering, and saying precisely what was wrong. */
+  health: () =>
+    client
+      .get<Health>('/health', { validateStatus: (s) => s === 200 || s === 503 })
+      .then((r) => r.data),
 
   ingest: (event: NewEvent, taskId?: string) =>
     client
@@ -52,6 +62,13 @@ export const api = {
   /** The one cached read. No bucket: it answers a single question — what arrived in the
    *  last few minutes — and answers it as a summary rather than a grid. */
   liveSummary: () => client.get<LiveSummary>('/events/stats/realtime').then((r) => r.data),
+
+  /** Simulate a dependency being unavailable, so the failure modes can be watched.
+   *  Absent unless the API runs with DEMO_MODE enabled, like the reset below. */
+  fault: (dependency: string, down: boolean) =>
+    client.post<{ faulted: string[] }>('/demo/fault', null, {
+      params: { dependency, down },
+    }).then((r) => r.data),
 
   /** Demo affordance. Absent unless the API runs with DEMO_MODE enabled. */
   reset: () => client.post<{ status: string }>('/demo/reset').then((r) => r.data),

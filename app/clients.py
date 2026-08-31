@@ -17,6 +17,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from redis.asyncio import Redis
 
 from app.config import settings
+from app.faults import guard
 
 log = logging.getLogger(__name__)
 
@@ -64,12 +65,15 @@ async def health(clients: Clients) -> dict[str, str]:
     """
 
     async def ping_mongo() -> None:
+        guard("mongodb")
         await clients.mongo.admin.command("ping")
 
     async def ping_redis() -> None:
+        guard("redis")
         await clients.redis.ping()
 
     async def ping_es() -> None:
+        guard("elasticsearch")
         if not await clients.elasticsearch.ping():
             raise RuntimeError("elasticsearch did not answer the ping")
 

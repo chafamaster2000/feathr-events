@@ -11,11 +11,12 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
-from app import clients
+from app import clients, faults
 from app.cache import StatsCache
 from app.config import settings
 from app.models import Event, EventAccepted, EventIn
@@ -90,6 +91,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # process. It is the honest cost of "in-process", and the reason SQS exists.
             log.warning("losing %s queued events on shutdown", pending)
         await clients.disconnect(app.state.clients)
+
+
+class DependencyName(StrEnum):
+    """A closed set: the caller names one of ours, never an arbitrary string."""
+
+    MONGODB = "mongodb"
+    ELASTICSEARCH = "elasticsearch"
+    REDIS = "redis"
 
 
 app = FastAPI(
@@ -271,6 +280,28 @@ async def health(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 if settings.demo_mode:
+
+    @app.post("/demo/fault", tags=["demo"])
+    async def demo_fault(dependency: DependencyName, down: bool = True) -> dict:
+        """Simulate a dependency being unavailable, so §6's failure modes can be watched.
+
+        Those claims are the least verifiable part of the design: nothing in the system
+        will break itself, and what makes them interesting is what keeps working while
+        something is broken. This flips one flag; the adapters then raise where a driver
+        error would raise, so the code that handles it is the code that handles the real
+        thing.
+
+        Not a harness endpoint. It reads nothing, exposes no internals, and takes no target
+        from the caller beyond a name from a closed set. Like `/demo/reset`, it is
+        *registered* only under `DEMO_MODE` rather than disabled behind a check.
+
+        It does not simulate a partition, a timeout, a slow dependency or a partial
+        failure: it is the shape of "the dependency refused", not "the dependency went
+        quiet". The console says the same thing where a reader will see it.
+        """
+        faults.enable(dependency.value) if down else faults.disable(dependency.value)
+        log.warning("demo: %s is now simulated as %s", dependency.value, "down" if down else "up")
+        return {"faulted": faults.active()}
 
     @app.post("/demo/reset", tags=["demo"])
     async def demo_reset(request: Request) -> dict:

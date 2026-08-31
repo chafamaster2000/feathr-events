@@ -21,6 +21,7 @@ from typing import Any, Protocol
 from elasticsearch import AsyncElasticsearch
 from pymongo.asynchronous.database import AsyncDatabase
 
+from app.faults import guard
 from app.models import Event
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class MongoEventStore:
         delivery safe: duplicates are normal, not an error.
         """
         doc = event.to_document()
+        guard("mongodb")
         await self._col.replace_one({"_id": doc["_id"]}, doc, upsert=True)
 
     async def ensure_schema(self) -> None:
@@ -112,6 +114,7 @@ class ElasticEventIndex:
         """Also idempotent: the document `_id` is the `event_id`."""
         doc = event.model_dump(mode="json")
         doc.pop("event_id")
+        guard("elasticsearch")
         await self._es.index(index=self._index, id=event.event_id, document=doc)
 
     async def ensure_schema(self) -> None:
