@@ -226,7 +226,7 @@ export default function PipelineDiagram({
   }
   // The ×N stops being a placeholder once /health answers.
   const labelFor = (s: Stage) =>
-    s.id === 'worker' && health ? `Worker ×${health.worker.consumers}` : s.label
+    s.id === 'worker' && health ? `Worker ×${health.worker.consumers} tasks` : s.label
 
   /** The traced event crossed here. Only this drives the single marker. */
   const traced = (step?: number) => step !== undefined && reached > step
@@ -255,8 +255,12 @@ export default function PipelineDiagram({
           {/* the in-process boundary — the claim the whole design rests on */}
           <rect x={140} y={78} width={456} height={88} rx={10}
                 fill="none" stroke="var(--line)" strokeDasharray="5 5" />
+          {/* Not decoration: this is the claim the whole design rests on, and the reason
+              `uvicorn --workers` must stay at 1. It has to say the consequence, because
+              "one process" beside "Worker ×8" reads as a contradiction on its own — the
+              eight are tasks sharing this process, and the queue is a variable in it. */}
           <text x={148} y={72} fontSize={10.5} fill="var(--muted)"
-                letterSpacing="0.08em">ONE PYTHON PROCESS — “IN-PROCESS”</text>
+                letterSpacing="0.08em">ONE PYTHON PROCESS — THE QUEUE IS A VARIABLE IN IT</text>
 
           {EDGES.map((e) => {
             const crossed = traced(e.step)
@@ -314,19 +318,35 @@ export default function PipelineDiagram({
             const lit = isLit(s.step)
             const active = selected === s.id
             return (
-              <g key={s.id} onClick={() => setSelected(active ? null : s.id)}
+              <g key={s.id} className="stage"
+                 onClick={() => setSelected(active ? null : s.id)}
+                 // It was announced as a button and focusable, but nothing happened on
+                 // Enter — a control that only answers to a mouse.
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter' || e.key === ' ') {
+                     e.preventDefault()
+                     setSelected(active ? null : s.id)
+                   }
+                 }}
                  style={{ cursor: 'pointer' }} role="button" tabIndex={0}
+                 aria-pressed={active}
                  aria-label={`${s.label}. ${s.owns}`}>
                 <motion.rect
                   x={s.x} y={s.y} width={s.w} height={s.h} rx={10}
                   animate={{
-                    fill: lit
-                      ? 'var(--cyan-soft)'
-                      : // The queue tints with its backlog: amber is what the charts use
-                        // for work that is held rather than done.
-                        s.id === 'queue' && load > 0
-                        ? `color-mix(in srgb, var(--inflight) ${Math.round(load * 26)}%, var(--surface-2))`
-                        : 'var(--surface-2)',
+                    // Selection wins the whole box, stroke and fill together. Painting a
+                    // navy border around a cyan-lit fill put two rings of different
+                    // colours on one shape, which read as a double border rather than as
+                    // one selected stage.
+                    fill: active
+                      ? 'color-mix(in srgb, var(--navy) 7%, var(--surface))'
+                      : lit
+                        ? 'var(--cyan-soft)'
+                        : // The queue tints with its backlog: amber is what the charts
+                          // use for work that is held rather than done.
+                          s.id === 'queue' && load > 0
+                          ? `color-mix(in srgb, var(--inflight) ${Math.round(load * 26)}%, var(--surface-2))`
+                          : 'var(--surface-2)',
                     stroke: active
                       ? 'var(--navy)'
                       : lit || (s.id === 'queue' && load > 0.05)
@@ -362,7 +382,6 @@ export default function PipelineDiagram({
           </motion.div>
         )}
       </AnimatePresence>
-      {!stage && <p className="note" style={{ marginTop: 10 }}>Click any stage to see what it owns.</p>}
     </div>
   )
 }

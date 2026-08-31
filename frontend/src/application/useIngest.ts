@@ -4,54 +4,15 @@
 // the client's connection pool, not the pipeline — and the resulting failures look like
 // backpressure when they are nothing of the sort.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import axios from 'axios'
 import { api, type NewEvent } from '../infrastructure/api'
 import type { TraceStep } from '../domain/types'
+import type { Run } from './useRunLog'
 
 const CONCURRENCY = 25
 const DRAIN_POLL_MS = 80
 const DRAIN_TIMEOUT_MS = 60_000
-
-/** One measured burst. Both timings, because they answer different questions. */
-export interface Run {
-  /** When it was run, so the log reads as history rather than as a set of latest values. */
-  at: number
-  n: number
-  /** How long the API took to say yes. Bounded by the client, not the pipeline. */
-  acceptMs: number
-  /** How long until the queue was empty. This is the one that measures the worker. */
-  drainMs: number | null
-  accepted: number
-  refused: number
-  failed: number
-}
-
-// The log survives reloads. It lives in the browser, never on the server: these are
-// measurements this machine took, and pushing them anywhere else would mean inventing an
-// endpoint to hold them — for a demo console, that is a service nobody asked for.
-const STORE_KEY = 'feathr.runs.v1'
-const MAX_RUNS = 40
-
-const isRun = (v: unknown): v is Run =>
-  typeof v === 'object' &&
-  v !== null &&
-  typeof (v as Run).at === 'number' &&
-  typeof (v as Run).n === 'number' &&
-  typeof (v as Run).acceptMs === 'number'
-
-/** Anything unreadable is dropped rather than repaired: a corrupt log is worth less than
- *  an empty one, and localStorage throws outright in some privacy modes. */
-function loadRuns(): Run[] {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter(isRun).slice(0, MAX_RUNS) : []
-  } catch {
-    return []
-  }
-}
 
 const TYPES = ['pageview', 'click', 'conversion', 'add_to_cart', 'signup']
 const BROWSERS = ['firefox', 'chrome', 'safari', 'webkit-nightly']
@@ -77,26 +38,13 @@ function randomEvent(i: number): NewEvent {
   }
 }
 
-export function useIngest(onDone?: () => void) {
+export function useIngest(onDone?: () => void, onRun?: (run: Omit<Run, 'at'>) => void) {
   const [busy, setBusy] = useState<string | null>(null)
   const [last, setLast] = useState<string | null>(null)
   // The same shape a single-event trace produces, so one event and five hundred are told
   // in the same visual language. The hops mean something different at batch scale - they
   // are phases of the batch rather than stages of one event - so the labels say so.
   const [steps, setSteps] = useState<TraceStep[]>([])
-  // A log, newest first — not one row per size. Keying by size meant a second run of the
-  // same burst silently erased the first, which is the opposite of what a measurement
-  // record is for: two runs of 500 that disagree are the interesting case.
-  const [runs, setRuns] = useState<Run[]>(loadRuns)
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(runs))
-    } catch {
-      // Full, or storage denied. The history is a convenience; losing it costs nothing.
-    }
-  }, [runs])
-
   const burst = useCallback(
     async (n: number) => {
       setBusy(`sending ${n}`)
@@ -191,12 +139,7 @@ export function useIngest(onDone?: () => void) {
             },
       ])
 
-      setRuns((prev) =>
-        [{ at: Date.now(), n, acceptMs, drainMs, accepted, refused, failed }, ...prev].slice(
-          0,
-          MAX_RUNS,
-        ),
-      )
+      onRun?.({ n, acceptMs, drainMs, accepted, refused, failed })
       setLast(
         [
           `${accepted} accepted`,
@@ -212,7 +155,7 @@ export function useIngest(onDone?: () => void) {
       setBusy(null)
       onDone?.()
     },
-    [onDone],
+    [onDone, onRun],
   )
 
   const reset = useCallback(async () => {
@@ -228,7 +171,5 @@ export function useIngest(onDone?: () => void) {
     onDone?.()
   }, [onDone])
 
-  const clearRuns = useCallback(() => setRuns([]), [])
-
-  return { busy, last, runs, steps, burst, reset, clearRuns }
+  return { busy, last, steps, burst, reset }
 }

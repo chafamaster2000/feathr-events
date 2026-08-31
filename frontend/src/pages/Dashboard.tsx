@@ -1,6 +1,7 @@
 import { useHealthPoll } from '../application/useHealthPoll'
 import { useIngest } from '../application/useIngest'
 import { useSearch } from '../application/useSearch'
+import { useRunLog } from '../application/useRunLog'
 import { useTrace } from '../application/useTrace'
 import SearchBar from '../components/SearchBar'
 import SearchResults from '../components/SearchResults'
@@ -23,8 +24,11 @@ export default function Dashboard() {
   const [mode, setMode] = useState<'trace' | 'burst'>('trace')
   const { health, history, error } = useHealthPoll(1000)
   const search = useSearch()
-  const trace = useTrace()
-  const ingest = useIngest(() => setRefreshKey((k) => k + 1))
+  // One log, two producers. Sending a single event is a measurement like any other, and
+  // leaving it out of the record made the button that sends one look like it did nothing.
+  const log = useRunLog()
+  const trace = useTrace(log.add)
+  const ingest = useIngest(() => setRefreshKey((k) => k + 1), log.add)
 
   return (
     <div className="shell">
@@ -68,14 +72,14 @@ export default function Dashboard() {
           eventId={mode === 'burst' ? null : trace.eventId}
           busy={ingest.busy}
           last={ingest.last}
-          runs={ingest.runs}
+          runs={log.runs}
           mode={mode}
           onIngest={(n) => {
             setMode(n === 1 ? 'trace' : 'burst')
             if (n === 1) void trace.run()
             else void ingest.burst(n)
           }}
-          onClearRuns={() => ingest.clearRuns()}
+          onClearRuns={log.clear}
           onReset={() => {
             setMode('trace')
             trace.clear()

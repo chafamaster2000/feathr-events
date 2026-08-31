@@ -12,6 +12,7 @@
 import { useCallback, useState } from 'react'
 import { api } from '../infrastructure/api'
 import type { TraceStep } from '../domain/types'
+import type { Run } from './useRunLog'
 
 const TIMEOUT_MS = 15_000
 const POLL_MS = 120
@@ -28,7 +29,7 @@ async function until<T>(probe: () => Promise<T | null>, startedAt: number) {
   return null
 }
 
-export function useTrace() {
+export function useTrace(onRun?: (run: Omit<Run, 'at'>) => void) {
   const [steps, setSteps] = useState<TraceStep[]>([])
   const [running, setRunning] = useState(false)
   const [eventId, setEventId] = useState<string | null>(null)
@@ -62,6 +63,12 @@ export function useTrace() {
         state: 'done',
       })
 
+
+      // One event is a run like any other, and belongs in the same log — the fixed cost
+      // it pays is exactly what the burst rows are compared against. Timed to MongoDB
+      // rather than to Searchable so the column means the same thing it does for a burst:
+      // the worker is done. The refresh gap keeps its own hop below.
+      const acceptMs = Date.now() - started
       const inMongo = await until(async () => {
         const { items } = await api.list({ user_id: 'trace-probe', limit: 50 })
         return items.find((e) => e.event_id === accepted.event_id) ?? null
@@ -76,6 +83,15 @@ export function useTrace() {
             }
           : { label: 'In MongoDB', detail: 'timed out', atMs: TIMEOUT_MS, state: 'failed' },
       )
+
+      onRun?.({
+        n: 1,
+        acceptMs,
+        drainMs: inMongo?.atMs ?? null,
+        accepted: 1,
+        refused: 0,
+        failed: 0,
+      })
 
       const inES = await until(async () => {
         const { items } = await api.search(marker, 5)
@@ -101,7 +117,7 @@ export function useTrace() {
     } finally {
       setRunning(false)
     }
-  }, [])
+  }, [onRun])
 
   /** Wipe the timeline. The reset button empties the stores; leaving a trace of an event
    *  that no longer exists on screen would be a lie. */

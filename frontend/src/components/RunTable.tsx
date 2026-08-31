@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import type { Run } from '../application/useIngest'
+import type { Run } from '../application/useRunLog'
 
 const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`)
 const clock = (at: number) =>
@@ -73,7 +73,8 @@ export default function RunTable({ runs, onClear }: { runs: Run[]; onClear: () =
                   <td className="num">{ms(r.acceptMs)}</td>
                   <td className="num">{r.drainMs !== null ? ms(r.drainMs) : '—'}</td>
                   <td className="num sub">
-                    {r.drainMs !== null && r.accepted > 0
+                    {/* For a single event this would just restate the total column. */}
+                    {r.drainMs !== null && r.accepted > 1
                       ? `${(r.drainMs / r.accepted).toFixed(1)}ms`
                       : '—'}
                   </td>

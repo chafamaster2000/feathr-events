@@ -3,7 +3,7 @@ import type { DepthSample, Health, TraceStep } from '../domain/types'
 import IngestButton from './IngestButton'
 import PipelineDiagram from './PipelineDiagram'
 import RunTable from './RunTable'
-import type { Run } from '../application/useIngest'
+import type { Run } from '../application/useRunLog'
 
 /**
  * The primary surface: put an event in, and watch where it goes.

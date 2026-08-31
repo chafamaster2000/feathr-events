@@ -145,6 +145,13 @@ td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: to
 tr:last-child td { border-bottom: none; }
 .scroll { overflow-x: auto; }
 
+/* The affordance instead of a sentence saying there is one. `stroke-width` is set as a
+   presentation attribute on the rect, which any stylesheet rule outranks. */
+.stage rect { transition: stroke-width 120ms ease-out; }
+.stage:hover rect { stroke-width: 2.2; }
+.stage:focus { outline: none; }
+.stage:focus-visible rect { stroke-width: 2.6; }
+
 .step { display: grid; grid-template-columns: 64px 1fr; gap: 14px; padding: 11px 0;
   border-bottom: 1px solid var(--line); }
 .step:last-child { border-bottom: none; }
