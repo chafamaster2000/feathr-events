@@ -11,38 +11,44 @@ executing something, and the document says what.
 
 ## 1. System diagram
 
-```
-                    ┌──────────── one Python process ("in-process") ───────────┐
-                    │                                                          │
-  ┌────────┐  POST  │  ┌─────────┐  send()  ┌────────────┐ receive() ┌───────┐ │
-  │ Client │───────►│  │ FastAPI │─────────►│ EventQueue │──────────►│Worker │ │
-  └────────┘  202   │  └─────────┘          │  (in RAM)  │◄──────────│  × 8  │ │
-                    │       ▲               └────────────┘  delete() └───┬───┘ │
-                    │       │                                            │     │
-                    └───────┼────────────────────────────────────────────┼─────┘
-                            │                                            │
-                            │                        1. upsert ┌─────────┴──────┐ 2. index
-                            │                                  ▼                ▼
-                            │                         ┌─────────────┐   ┌───────────────┐
-                            │                         │   MongoDB   │   │ Elasticsearch │
-                            │                         │source of    │   │   derived     │
-                            │                         │   truth     │   │    index      │
-                            │                         └──────┬──────┘   └───────┬───────┘
-                            │                                │                  │
-   READ PATHS               │                                │                  │
-                            │                                │                  │
-                            ├──► GET /events ────────────────┤                  │
-                            ├──► GET /events/stats ──────────┘                  │
-                            │                                                   │
-                            ├──► GET /events/search ────────────────────────────┤
-                            ├──► GET /events/search/terms ──────────────────────┘
-                            │
-                            └──► GET /events/stats/realtime ──►  Redis  ──(miss)──►  the same aggregation
+```mermaid
+flowchart LR
+    Client([Client])
+
+    subgraph proc ["one Python process (&quot;in-process&quot;)"]
+        direction LR
+        API[FastAPI]
+        Q["EventQueue<br/>(in RAM)"]
+        W["Worker × 8"]
+        API -- "send()" --> Q
+        Q -- "receive()" --> W
+        W -- "delete()" --> Q
+    end
+
+    Client -- "POST /events → 202" --> API
+
+    M[("MongoDB<br/>source of truth")]
+    ES[("Elasticsearch<br/>derived index")]
+    R[("Redis<br/>cache")]
+
+    W -- "1. upsert" --> M
+    W -- "2. index" --> ES
+
+    API -. "GET /events<br/>GET /events/stats" .-> M
+    API -. "GET /events/search<br/>GET /events/search/terms" .-> ES
+    API -. "GET /events/stats/realtime" .-> R
+    R -. "miss: the same aggregation" .-> M
+
+    style proc stroke-dasharray: 6 4
 ```
 
-The dashed boundary matters more than the boxes. Four containers run, but the API, the
-queue and the worker share **one Python process**. The queue is not a service — it is
-`app.state.queue`, a variable in that process's memory.
+Solid arrows are the write path; dotted ones are the read paths.
+
+The dashed boundary matters more than the boxes. Five containers run — four are the
+system, and the fifth is a demo console that only watches it, not part of the backend
+(see `frontend/README.md`) — but the API, the queue and the worker share **one Python
+process**. The queue is not a service — it is `app.state.queue`, a variable in that
+process's memory.
 
 **Write path.** `POST /events` validates, stamps an `event_id`, enqueues, and returns
 `202 Accepted`. It never touches a database. A worker task picks the event up, writes
@@ -365,12 +371,15 @@ change_visibility(handle, seconds)  → ChangeMessageVisibility  ← heartbeat
 
 ### The state machine
 
-```
-   VISIBLE ──receive()──► INVISIBLE ──delete()──────────► (gone)
-      ▲                       │
-      │                       ├──visibility timeout──────► VISIBLE  (receive_count += 1)
-      └───────────────────────┤
-                              └──receive_count ≥ max────► DEAD-LETTER QUEUE
+```mermaid
+stateDiagram-v2
+    direction LR
+    DLQ: DEAD-LETTER QUEUE
+    [*] --> VISIBLE: send()
+    VISIBLE --> INVISIBLE: receive()
+    INVISIBLE --> [*]: delete() — the ack
+    INVISIBLE --> VISIBLE: visibility timeout lapses<br/>receive_count += 1
+    INVISIBLE --> DLQ: receive_count ≥ max
 ```
 
 The single idea worth carrying: **a retry is the absence of a delete, not an action.** A
@@ -909,7 +918,8 @@ in a document about failure modes.
 
 ### The log harness
 
-Four containers log in four dialects, and none of them agree:
+The four backend containers log in four dialects, and none of them agree (the demo
+console is deliberately outside this harness — it is not part of the system):
 
 | Service | Format | Where the level lives |
 |---|---|---|

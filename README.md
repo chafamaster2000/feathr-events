@@ -3,7 +3,7 @@
 Asynchronous ingestion, processing, querying and caching of high-volume web events.
 FastAPI, MongoDB, Elasticsearch and Redis, with an in-process queue modelled on SQS.
 
-**The architecture document is [`ARCHITECTURE.md`](./ARCHITECTURE.md)** — it holds the
+**The architecture document is [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)** — it holds the
 reasoning behind every decision here, including the ones that were rejected.
 
 ---
@@ -13,12 +13,15 @@ reasoning behind every decision here, including the ones that were rejected.
 Requires Docker and Docker Compose. Everything else runs in containers.
 
 ```bash
-make up        # builds and starts all four services
+make up        # the four backend services, plus the demo console
 make health    # the three dependencies, plus queue depth
 ```
 
 First run pulls roughly 1.5 GB (Elasticsearch is most of it) and takes a few minutes.
-The API waits for all three datastores to report healthy before it starts.
+The API waits for all three datastores to report healthy before it starts. The fifth
+container is the operational console — a demonstration aid that only watches the
+backend, not part of the application itself; see [The console](#the-console) and
+[`frontend/README.md`](./frontend/README.md).
 
 ```bash
 curl -X POST localhost:8000/events \
@@ -243,7 +246,7 @@ reason. Observed on the running stack:
 The console's largest burst — 500 events at 25 concurrent posts — is never throttled, and
 that is asserted as a test rather than left to a number that looks comfortable. The full
 reasoning, including why the limiter is in-process rather than in Redis, is
-[ARCHITECTURE §4b](./ARCHITECTURE.md#4b-rate-limiting).
+[ARCHITECTURE §4b](./docs/ARCHITECTURE.md#4b-rate-limiting).
 
 ### `GET /health`
 
@@ -266,7 +269,7 @@ worker outpaces ingestion; growing means the worker is the bottleneck.
 ```
 
 `paused` is the worker having stopped pulling because the stores are not answering — see
-[ARCHITECTURE §6](./ARCHITECTURE.md#the-dead-letter-queue-used-to-have-false-positives).
+[ARCHITECTURE §6](./docs/ARCHITECTURE.md#the-dead-letter-queue-used-to-have-false-positives).
 A paused worker and an idle one both report zero throughput and only one of them is a
 problem, so it is reported rather than inferred, and the console shows it as a pill beside
 the queue depth.
@@ -338,7 +341,7 @@ proxies `/api` to FastAPI — which is why the backend needs no CORS configurati
 make seed                              # 2000 events across 7 days, through the API
 make seed ARGS="--count 500 --days 2"  # or pass your own
 make reindex ARGS="--recreate"         # rebuild Elasticsearch from MongoDB
-make logcheck                          # warnings from all four containers, unified
+make logcheck                          # warnings from the four backend containers, unified
 ```
 
 These go through `uv run`, because the scripts import the project's dependencies —
@@ -563,7 +566,7 @@ tests/
   test_integration.py  eight lifecycles against the real stack
 
 scripts/
-  logcheck.py    development harness — normalises the four container log formats
+  logcheck.py    development harness — normalises the four backend container log formats
   reindex.py     rebuild Elasticsearch from MongoDB, the source of truth
   seed.py        generate events for a populated console
 ```

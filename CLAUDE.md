@@ -1,16 +1,14 @@
 # Feathr — Distributed Event Processing Platform
 
 Asynchronous ingestion of web events, backed by MongoDB, Elasticsearch and Redis.
-The reasoning behind every decision lives in `ARCHITECTURE.md` — read it before changing
-anything structural.
+The reasoning behind every decision lives in `docs/ARCHITECTURE.md` — read it before
+changing anything structural.
 
 ## Module boundaries
 
-The brief names the layers one by one and grades them (criterion #6). They are separate:
-
 | Module | Responsibility |
 |---|---|
-| `app/models.py` | The event. The `event_id` is stamped here, at the HTTP edge |
+| `app/models.py` | The event. `event_id` is stamped here, at the HTTP edge |
 | `app/queue.py` | The queue and its state machine (SQS semantics) |
 | `app/worker.py` | Consumes and writes. **No** retry logic |
 | `app/stores.py` | Writes: MongoDB (truth) + Elasticsearch (derived index) |
@@ -40,26 +38,23 @@ late and without noise.
    authentication: safe because it only runs on a developer machine. A `GET /debug/...`
    turns it into an open admin API. It is in `.dockerignore`; keep it there. (§6)
 
-## Closing rules
+## Definition of done
 
-Before considering any task that touches ingestion done:
+Any task that touches ingestion ends with all three passing:
 
 ```bash
 make health                              # three dependencies up, plus queue depth
 python3 scripts/logcheck.py --level WARN # did any container complain?
-uv run pytest -q                         # 72 tests
+uv run pytest -q                         # the full suite
 ```
 
-Without all three, it is not done. Queue depth is the most informative number in the
-system: stable near zero means the worker outpaces ingestion; growing means the worker is
-the bottleneck.
+Queue depth is the most informative number in the system: stable near zero means the
+worker outpaces ingestion; growing means the worker is the bottleneck.
 
 ## Commands
 
 ```bash
-make up                    # start the stack (4 containers)
-make health                # formatted /health
-uv run pytest -q           # tests
+make up                    # the stack: 4 backend containers + the demo console
 uv run ruff check app      # lint
 python3 scripts/logcheck.py --since 10m --level WARN
 ```

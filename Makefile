@@ -25,7 +25,7 @@ seed:          ## Fill the stores with realistic events, through the API
 reindex:       ## Rebuild the Elasticsearch index from MongoDB
 	uv run python scripts/reindex.py $(ARGS)
 
-logcheck:      ## Warnings and errors from all four containers, in one stream
+logcheck:      ## Warnings and errors from the four backend containers, in one stream
 	uv run python scripts/logcheck.py $(ARGS)
 
 lint:
