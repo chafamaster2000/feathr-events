@@ -241,7 +241,12 @@ tr:last-child td { border-bottom: none; }
   border: none; background: transparent; border-radius: 10px; padding: 9px 12px; }
 .menu button:hover { background: var(--cyan-soft); }
 .menu button strong { font-size: 1rem; min-width: 34px; font-variant-numeric: tabular-nums; }
-.menu button span { color: var(--muted); font-size: .85rem; font-weight: 400; }
+.menu button span { color: var(--muted); font-size: .85rem; font-weight: 400; flex: 1; }
+/* The picked size is the one the main button will send, so it is marked - a menu that
+   forgets what you chose makes the button beside it lie about what it does. */
+.menu button .tick { opacity: 0; flex: none; align-self: center; color: var(--navy); }
+.menu button.picked { background: var(--cyan-soft); }
+.menu button.picked .tick { opacity: 1; }
 .readout { margin: 0; font-size: .88rem; color: var(--muted); text-align: right;
   font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) {

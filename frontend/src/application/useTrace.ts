@@ -103,5 +103,12 @@ export function useTrace() {
     }
   }, [])
 
-  return { steps, running, eventId, run }
+  /** Wipe the timeline. The reset button empties the stores; leaving a trace of an event
+   *  that no longer exists on screen would be a lie. */
+  const clear = useCallback(() => {
+    setSteps([])
+    setEventId(null)
+  }, [])
+
+  return { steps, running, eventId, run, clear }
 }

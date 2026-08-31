@@ -26,6 +26,8 @@ interface Props {
   busy: string | null
   last: string | null
   runs: Record<number, Run>
+  /** Which question the last action asked: one event, or a batch. */
+  mode: 'trace' | 'burst'
   onIngest: (n: number) => void
   onReset: () => void
 }
@@ -39,6 +41,7 @@ export default function TraceHero({
   busy,
   last,
   runs,
+  mode,
   onIngest,
   onReset,
 }: Props) {
@@ -89,6 +92,7 @@ export default function TraceHero({
         steps={steps}
         running={running}
         ingesting={busy !== null}
+        mode={mode}
       />
 
       <div className="trail" data-empty={steps.length === 0}>

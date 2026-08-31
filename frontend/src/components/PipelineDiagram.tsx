@@ -108,15 +108,25 @@ export default function PipelineDiagram({
   steps,
   running,
   ingesting,
+  mode,
 }: {
   health: Health | null
   history: DepthSample[]
   steps: TraceStep[]
   running: boolean
   ingesting: boolean
+  mode: 'trace' | 'burst'
 }) {
   const [selected, setSelected] = useState<StageId | null>(null)
-  const reached = steps.filter((s) => s.state === 'done').length
+
+  // Which language the drawing is speaking. The two must not mix: a burst's steps are
+  // phases of a batch ("accepted", "drained"), not stages one event passed through, so
+  // counting them as trace progress lights stages that nothing crossed - and worse, the
+  // static lighting suppresses the flow markers, leaving a burst looking frozen.
+  const reached = mode === 'trace' ? steps.filter((s) => s.state === 'done').length : 0
+  // Once a burst has drained, the events really are in both stores. The write edges stay
+  // lit to say so, without the single marker that means "this one event".
+  const settled = mode === 'burst' && steps.length > 0 && !ingesting
 
   // Flow, derived from live readings rather than per-event tracking.
   //
@@ -143,7 +153,7 @@ export default function PipelineDiagram({
     api: health ? `${health.worker.processed} processed` : '',
   }
 
-  const isLit = (step?: number) => step !== undefined && reached > step
+  const isLit = (step?: number) => step !== undefined && (reached > step || (settled && step > 0))
   const stage = STAGES.find((s) => s.id === selected)
 
   /** Which edges carry flow, independent of any trace. */
@@ -190,7 +200,7 @@ export default function PipelineDiagram({
                       strokeDasharray={e.from === 'redis' ? '4 4' : undefined} />
 
                 {/* Trace: one marker, once. This event, this crossing. */}
-                {lit && (
+                {lit && mode === 'trace' && (
                   <motion.circle r={4.5} fill="var(--cyan)"
                     initial={{ offsetDistance: '0%' }} animate={{ offsetDistance: '100%' }}
                     transition={{ duration: 0.8, ease: 'easeInOut' }}
@@ -246,8 +256,11 @@ export default function PipelineDiagram({
             )
           })}
 
-          {running && (
-            <text x={W / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="var(--muted)" style={{ fontVariantNumeric: 'tabular-nums' }}>tracing…</text>
+          {(running || ingesting) && (
+            <text x={W / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="var(--muted)"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {mode === 'trace' ? 'tracing…' : 'in flight…'}
+            </text>
           )}
         </svg>
       </div>

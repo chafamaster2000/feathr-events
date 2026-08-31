@@ -16,6 +16,11 @@ import { useState } from 'react'
  */
 export default function Dashboard() {
   const [refreshKey, setRefreshKey] = useState(0)
+  // Which of the two timelines the hero is showing. Derived state does not work here:
+  // a trace leaves its steps behind, so "is the trace empty?" answers the wrong question
+  // and a later burst keeps rendering the previous single event. What the surface shows
+  // is decided by what the reader last asked for.
+  const [mode, setMode] = useState<'trace' | 'burst'>('trace')
   const { health, history, error } = useHealthPoll(1000)
   const search = useSearch()
   const trace = useTrace()
@@ -58,14 +63,23 @@ export default function Dashboard() {
         <TraceHero
           health={health}
           history={history}
-          steps={ingest.steps.length > 0 && trace.steps.length === 0 ? ingest.steps : trace.steps}
+          steps={mode === 'burst' ? ingest.steps : trace.steps}
           running={trace.running || ingest.busy !== null}
-          eventId={trace.eventId}
+          eventId={mode === 'burst' ? null : trace.eventId}
           busy={ingest.busy}
           last={ingest.last}
           runs={ingest.runs}
-          onIngest={(n) => (n === 1 ? void trace.run() : void ingest.burst(n))}
-          onReset={() => void ingest.reset()}
+          mode={mode}
+          onIngest={(n) => {
+            setMode(n === 1 ? 'trace' : 'burst')
+            if (n === 1) void trace.run()
+            else void ingest.burst(n)
+          }}
+          onReset={() => {
+            setMode('trace')
+            trace.clear()
+            void ingest.reset()
+          }}
         />
         <StatusBar health={health} history={history} />
         <StatsPanel refreshKey={refreshKey} />
