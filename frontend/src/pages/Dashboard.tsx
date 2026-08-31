@@ -19,9 +19,24 @@ export default function Dashboard() {
   return (
     <div className="shell">
       <header className="top">
-        <h1>Feathr · Pipeline Console</h1>
+        <span className="wordmark">
+          feathr
+          {/* A feather drawn here rather than their asset file: this is a candidate's
+              demo styled after their site, not a copy of their brand package. */}
+          <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M20 3c-6 0-11 3.5-13 9l-2.5 6.5 1.5 1.5L12 17c5.5-2 8-7 8-14Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+            <path d="M6 18 16 8" fill="none" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </span>
         <span className="sub">
-          asynchronous ingestion — MongoDB, Elasticsearch, Redis, and a queue that lives in memory
+          Asynchronous ingestion — MongoDB, Elasticsearch, Redis, and{' '}
+          <span className="mark">a queue that lives in memory</span>
         </span>
       </header>
 

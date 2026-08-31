@@ -1,28 +1,34 @@
-/* Operational console. The palette carries meaning rather than decoration: the three
-   queue states keep the same colours here that they have in ARCHITECTURE.md's diagrams -
-   green is available, amber is lent out, rust is dead. */
-:root {
-  /* Feathr's own palette, read from the CSS on feathr.co rather than eyeballed:
-     #19263c is "Midnight", their primary (41 uses), and #21ebff the cyan accent (28).
-     #d1fbff and #e3e6ec come from the same sheet.
+/* Styled after feathr.co, read from the live site rather than approximated.
+   Their system, and the part that matters most: it is a LIGHT interface. Navy carries
+   text, cyan carries action - not the other way round, which is the mistake a palette
+   grab makes when nobody looks at the page.
 
-     The three queue states keep semantic colours - green available, amber lent out,
-     coral dead - retuned to sit on navy instead of near-black. Every pair below clears
-     WCAG AA on the card surface; the tightest is muted at 6.5:1. */
-  --ground: #111b2c;
-  --surface: #19263c;
-  --surface-2: #223351;
-  --sunk: #0c1421;
-  --line: #2c3d5c;
-  --ink: #e8ecf2;
-  --ink-2: #cfd2d8;
-  --muted: #bccadb;
-  --accent: #21ebff;
-  --accent-soft: #d1fbff;
-  --visible: #5fe3a1;
-  --inflight: #ffc46b;
-  --dead: #ff8fa0;
-  color-scheme: dark;
+     #19263c  navy ("Midnight"), their primary - text and headings
+     #21ebff  cyan - buttons, and the highlight marker behind key words
+     #f5f2ed  warm off-white - page ground
+     #e3e6ec  light grey - hairlines
+
+   Signatures reproduced: white cards with generous radius and a soft shadow, fully
+   rounded pill buttons in solid cyan with navy text, and the cyan marker highlight
+   they run behind emphasised words. Every pair below clears WCAG AA on white. */
+
+:root {
+  --ground: #f5f2ed;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --navy: #19263c;
+  --ink: #19263c;
+  --ink-2: #3d4a5c;
+  --muted: #5a6472;
+  --line: #e3e6ec;
+  --cyan: #21ebff;
+  --cyan-soft: #d1fbff;
+  --visible: #0b7a52;
+  --inflight: #9a5b06;
+  --dead: #c02434;
+  --radius: 18px;
+  --shadow: 0 1px 2px rgba(25, 38, 60, .04), 0 8px 24px rgba(25, 38, 60, .06);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -39,77 +45,111 @@ body {
 
 code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
-.shell { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
+.shell { max-width: 1200px; margin: 0 auto; padding: 26px 24px 90px; }
 
-header.top { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-  padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
-header.top h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.015em; font-weight: 700; }
-header.top .sub { color: var(--ink-2); font-size: 0.9rem; }
+/* ---- masthead ---- */
+header.top {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px 24px; margin-bottom: 22px;
+}
+.wordmark { display: flex; align-items: center; gap: 7px; font-weight: 700;
+  font-size: 1.45rem; letter-spacing: -0.03em; color: var(--navy); }
+.wordmark svg { display: block; }
+header.top .sub { color: var(--muted); font-size: 0.95rem; margin-left: auto;
+  max-width: 46ch; text-align: right; }
 
-.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
-  padding: 18px 20px; min-width: 0; }
-.card h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.13em;
-  color: var(--muted); margin: 0 0 14px; font-weight: 600; }
-.card .note { color: var(--muted); font-size: 0.92rem; font-weight: 450;
-  margin-top: 12px; line-height: 1.65; max-width: 62ch; }
+/* The cyan marker they run behind emphasised words. */
+.mark {
+  background: var(--cyan); padding: .05em .2em; border-radius: 3px;
+  /* Without this the highlight only gets its padding on the first line fragment when
+     the phrase wraps, which looks like a mistake rather than a marker. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.grid { display: grid; gap: 18px; grid-template-columns: repeat(12, 1fr); }
+.card {
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 22px 24px; min-width: 0;
+}
+.card h2 {
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); margin: 0 0 16px; font-weight: 700;
+}
+.card .note { color: var(--muted); font-size: 0.92rem; margin-top: 14px;
+  line-height: 1.65; max-width: 62ch; }
 
 .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; }
 .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
 @media (max-width: 900px) { .span-8, .span-6, .span-4 { grid-column: span 12; } }
 
+/* ---- pills ---- */
 .pills { display: flex; gap: 8px; flex-wrap: wrap; }
-.pill { font-size: 0.78rem; padding: 4px 10px; border-radius: 3px; border: 1px solid var(--line);
-  background: var(--surface-2); color: var(--ink-2); font-family: ui-monospace, monospace; }
-.pill.up { border-color: var(--visible); color: var(--visible); }
-.card h2 { border-left: 2px solid var(--accent); padding-left: 9px; margin-left: -11px; }
-.pill.down { border-color: var(--dead); color: var(--dead); }
+.pill {
+  font-size: 0.8rem; padding: 5px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
+  font-family: ui-monospace, monospace;
+}
+.pill.up { background: var(--cyan-soft); border-color: var(--cyan); color: var(--navy); }
+.pill.down { background: #fdecee; border-color: var(--dead); color: var(--dead); }
 
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 1px;
-  background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.metric { background: var(--surface-2); padding: 12px 14px; }
+.metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 12px;
+}
+.metric { background: var(--surface-2); border-radius: 12px; padding: 14px 16px; }
 .metric dt { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--muted); font-family: ui-monospace, monospace; }
-.metric dd { margin: 4px 0 0; font-size: 1.5rem; font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, monospace; }
+  color: var(--muted); font-family: ui-monospace, monospace; font-weight: 600; }
+.metric dd { margin: 5px 0 0; font-size: 1.7rem; font-variant-numeric: tabular-nums;
+  font-weight: 700; letter-spacing: -0.02em; color: var(--navy); }
 .metric.visible dd { color: var(--visible); }
 .metric.inflight dd { color: var(--inflight); }
 .metric.dlq dd { color: var(--dead); }
 
-button { font: inherit; cursor: pointer; border-radius: 4px; padding: 8px 14px;
-  background: var(--surface-2); color: var(--ink); border: 1px solid var(--line);
-  transition: border-color .15s, color .15s; }
-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+/* ---- their pill buttons ---- */
+button {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 999px;
+  padding: 9px 20px; background: var(--surface-2); color: var(--navy);
+  border: 1px solid var(--line); transition: background .15s, border-color .15s;
+}
+button:hover:not(:disabled) { background: var(--cyan-soft); border-color: var(--cyan); }
 button:disabled { opacity: .45; cursor: not-allowed; }
-button.primary { border-color: var(--accent); color: var(--accent); }
-button.danger:hover:not(:disabled) { border-color: var(--dead); color: var(--dead); }
-.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button.primary { background: var(--cyan); border-color: var(--cyan); color: var(--navy); }
+button.primary:hover:not(:disabled) { filter: brightness(.94); }
+button.danger { border-color: var(--line); }
+button.danger:hover:not(:disabled) { background: #fdecee; border-color: var(--dead);
+  color: var(--dead); }
+.row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
 
 input[type="text"], input[type="search"], select {
-  font: inherit; background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 4px; padding: 8px 11px; min-width: 0; }
+  font: inherit; background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; min-width: 0;
+}
 input:focus-visible, button:focus-visible, select:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 1px; }
+  outline: 2px solid var(--navy); outline-offset: 2px;
+}
 
-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); font-weight: 600; }
-td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--line);
+  font-weight: 700; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
 .scroll { overflow-x: auto; }
 
-.step { display: grid; grid-template-columns: 62px 1fr; gap: 14px; padding: 10px 0;
-  border-bottom: 1px dotted var(--line); }
+.step { display: grid; grid-template-columns: 64px 1fr; gap: 14px; padding: 11px 0;
+  border-bottom: 1px solid var(--line); }
 .step:last-child { border-bottom: none; }
 .step .at { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
-  color: var(--accent); font-size: 0.86rem; text-align: right; }
-.step .label { font-weight: 600; }
-.step .detail { color: var(--muted); font-size: 0.9rem; font-weight: 450; }
+  color: var(--navy); font-weight: 700; font-size: 0.9rem; text-align: right; }
+.step .label { font-weight: 700; }
+.step .detail { color: var(--muted); font-size: 0.9rem; }
 .step.failed .at, .step.failed .label { color: var(--dead); }
 
-.banner { border: 1px solid var(--dead); color: var(--dead); background: var(--sunk);
-  padding: 10px 14px; border-radius: 4px; font-size: 0.84rem; margin-bottom: 16px; }
+.banner { border: 1px solid var(--line); background: var(--surface-2); color: var(--muted);
+  padding: 11px 16px; border-radius: 12px; font-size: 0.9rem; }
 
 .kv { display: flex; gap: 6px; flex-wrap: wrap; }
 .kv span { font-family: ui-monospace, monospace; font-size: 0.78rem; color: var(--ink-2);
-  background: var(--sunk); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; }
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 9px; }

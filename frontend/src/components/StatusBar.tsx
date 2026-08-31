@@ -22,7 +22,7 @@ export default function StatusBar({ health }: { health: Health | null }) {
           <motion.span
             key={health?.worker.processed}
             className="pill"
-            initial={{ borderColor: 'var(--accent)' }}
+            initial={{ borderColor: 'var(--cyan)' }}
             animate={{ borderColor: 'var(--line)' }}
             transition={{ duration: 0.6 }}
           >

@@ -1,3 +1,4 @@
+import http from 'node:http'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -22,6 +23,16 @@ export default defineConfig({
         target: API_TARGET,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+        // Both ends have to agree about connection reuse, or the proxy answers 502.
+        // Symptom: roughly half the dashboard's polls failed at random while curl never
+        // did - because curl opens a fresh connection every time and the proxy pools.
+        // Cause: uvicorn closes idle keep-alive sockets after 5s (its default), and the
+        // pool kept handing back sockets the server had already closed.
+        // Fix: keep the pool, and raise the server's timeout past the client's idle
+        // window (see --timeout-keep-alive in docker-compose.yml). Turning keep-alive
+        // off also worked, but traded a 50% failure rate for socket churn and a
+        // residual ~1%.
+        agent: new http.Agent({ keepAlive: true, keepAliveMsecs: 15_000, maxSockets: 24 }),
       },
     },
   },

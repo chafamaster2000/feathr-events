@@ -100,6 +100,10 @@ services:
       - app.main:app
       - --host=0.0.0.0
       - --port=8000
+      # Longer than the dashboard proxy's connection idle window. At the 5s default the
+      # server closes pooled sockets the proxy still believes are open, and the proxy
+      # answers 502 to about half the requests.
+      - --timeout-keep-alive=65
       - --reload
     depends_on:
       # Sin esto la API arranca antes que ES este listo y parece un bug de
