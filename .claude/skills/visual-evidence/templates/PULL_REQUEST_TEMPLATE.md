@@ -1,6 +1,6 @@
 <!-- Seeded by the workflow from skills/harness/visual-evidence (do not edit here;
      edit the skill template). Agents: `gh pr create --body` IGNORES this template —
-     you must fill the Evidencia visual section yourself from the evidence report
+     you must fill the Visual evidence section yourself from the evidence report
      (.logs/evidence/<date>/<task-id>.json). The PreToolUse hook blocks PRs whose
      body lacks the section or contains no image. -->
 
@@ -8,7 +8,7 @@
 
 <!-- What changed and why. Link the plan/task. -->
 
-## Evidencia visual
+## Visual evidence
 
 <!-- Required when the change was verified visually (UI, gameplay, rendering).
      One row per capture: the image (SHA-pinned URL on the agent-evidence branch,
@@ -16,7 +16,7 @@
      audit that the description matches the pixels. Verdict column only when criteria
      were gated; use – otherwise. -->
 
-| Paso | Imagen | Descripción (ojos) | Veredicto |
+| Step | Image | Description (eyes) | Verdict |
 |---|---|---|---|
 | <id> | [![<id>](https://raw.githubusercontent.com/<owner>/<repo>/<sha>/<task-id>/<file>.png)](https://github.com/<owner>/<repo>/blob/<sha>/<task-id>/<file>.png) | <description> | <pass\|fail\|–> |
 

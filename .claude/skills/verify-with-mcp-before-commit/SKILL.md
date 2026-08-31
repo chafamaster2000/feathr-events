@@ -70,7 +70,7 @@ step 5/3. Reference the report in plan §6 V-3.
 ### 6. At PR time
 
 Publish the captures to the `agent-evidence` branch and fill the PR body's
-`## Evidencia visual` section (image + description per checkpoint) exactly as the
+`## Visual evidence` section (image + description per checkpoint) exactly as the
 visual-evidence contract specifies. The workflow hook blocks `gh pr create` without it.
 
 ## Failure modes

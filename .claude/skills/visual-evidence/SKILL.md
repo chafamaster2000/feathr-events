@@ -85,7 +85,7 @@ probe-report; gamedev reports are valid evidence reports. Key points:
 
 ## Evidence in the PR — description AND image, always
 
-Every PR whose changes were verified visually carries a `## Evidencia visual` section
+Every PR whose changes were verified visually carries a `## Visual evidence` section
 (template in `templates/PULL_REQUEST_TEMPLATE.md`): one row per capture with the
 **image** and the eyes **description** side by side, so a human can audit that the
 description matches the pixels.
@@ -125,7 +125,7 @@ GitHub's API cannot attach images, and `gh pr create --body` ignores PR template
 
 3. Record the push in the report's `prEvidence` block (branch, SHA, URL map).
 
-`gh pr create` must fill the `## Evidencia visual` section of the body from the report
+`gh pr create` must fill the `## Visual evidence` section of the body from the report
 — never rely on the template auto-applying. Workflows enforce this with a PreToolUse
 hook that blocks `gh pr create` when the body lacks the section or contains no image.
 
@@ -144,5 +144,5 @@ hook that blocks `gh pr create` when the body lacks the section or contains no i
 
 - `.logs/evidence/<date>/<task-id>.json` exists, every capture has a non-empty
   `description`, and gated criteria have verdicts.
-- The PR body's `## Evidencia visual` table has one row per relevant capture, each
+- The PR body's `## Visual evidence` table has one row per relevant capture, each
   with an image URL pinned to the `agent-evidence` push SHA.

@@ -1,9 +1,9 @@
 // AgentLog — NDJSON structured logging for the agent logs contract (skill expose-hidden-logs).
-// Escribe .logs/agent/<yyyy-MM-dd>/<taskId>.log en la raíz del repo (game/Assets → ../../.logs).
-// La fecha del directorio es LOCAL, alineada con read-hidden-logs (date +%F) y con ProbeCapture;
-// el timestamp de cada línea es ISO-8601 UTC.
-// Uso: AgentLog.SetTask("issue-42"); AgentLog.Info("oxygen.tick", "drain applied", ("rate", 1.5f));
-// Editor + Development Build only: compila a no-op en release (UNITY_EDITOR || DEVELOPMENT_BUILD).
+// Writes .logs/agent/<yyyy-MM-dd>/<taskId>.log at the repo root (game/Assets → ../../.logs).
+// The directory date is LOCAL, aligned with read-hidden-logs (date +%F) and with ProbeCapture;
+// each line's timestamp is ISO-8601 UTC.
+// Usage: AgentLog.SetTask("issue-42"); AgentLog.Info("oxygen.tick", "drain applied", ("rate", 1.5f));
+// Editor + Development Build only: compiles to a no-op in release (UNITY_EDITOR || DEVELOPMENT_BUILD).
 using System;
 using System.Globalization;
 using System.IO;
@@ -54,7 +54,7 @@ namespace Game.Infrastructure
                 sb.Append('}');
                 File.AppendAllText(Path.Combine(_dir, _taskId + ".log"), sb.ToString() + Environment.NewLine);
             }
-            catch { /* la evidencia nunca tira el juego */ }
+            catch { /* evidence must never crash the game */ }
 #endif
         }
 

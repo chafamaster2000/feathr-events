@@ -12,12 +12,12 @@ dependencies = [
     "uvicorn[standard]==0.52.4",
     "pydantic==2.13.4",
     "pydantic-settings==2.15.0",
-    # Driver Mongo async NATIVO. NO usar motor: deprecado el 2026-05-14.
+    # The NATIVE async Mongo driver. Do NOT use motor: deprecated 2026-05-14.
     "pymongo==4.17.0",
     "redis==8.1.0",
-    # El major DEBE coincidir con el del servidor ES (9.x).
-    # El extra [async] trae aiohttp: sin el, AsyncElasticsearch tira
-    # "You must have 'aiohttp' installed to use AiohttpHttpNode" al arrancar.
+    # The major version MUST match the ES server's (9.x).
+    # The [async] extra pulls in aiohttp: without it, AsyncElasticsearch raises
+    # "You must have 'aiohttp' installed to use AiohttpHttpNode" at startup.
     "elasticsearch[async]==9.5.0",
 ]
 
