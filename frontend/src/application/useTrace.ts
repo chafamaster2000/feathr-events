@@ -15,7 +15,11 @@ import type { TraceStep } from '../domain/types'
 import type { Run } from './useRunLog'
 
 const TIMEOUT_MS = 15_000
-const POLL_MS = 120
+// Tight, because for a single event this interval IS the measurement. At 120ms the
+// console reported up to 120ms that never happened — a bar that was mostly the browser's
+// own blink rate, presented as pipeline time. Measured against a fast direct probe, one
+// event reaches MongoDB in 2-48ms; the console was reporting ~175ms.
+const POLL_MS = 25
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -77,7 +81,9 @@ export function useTrace(onRun?: (run: Omit<Run, 'at'>) => void) {
         inMongo
           ? {
               label: 'In MongoDB',
-              detail: 'the worker dequeued it and wrote the source of truth',
+              detail:
+                'mostly spent waiting to be picked up — idle worker tasks poll every 50ms, ' +
+                'a fixed cost that disappears once there is a queue to work through',
               atMs: inMongo.atMs,
               state: 'done',
             }
