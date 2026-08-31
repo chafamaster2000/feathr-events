@@ -1,6 +1,0 @@
-{
-  "name": "@odaclick/skill-respec",
-  "version": "0.2.0",
-  "description": "Use when auditing an existing codebase or Unity game to document how it works TODAY (AS-IS) as methodology-agnostic ground-truth before any spec-driven development. Produces a cross-linked docs/ bundle whose mandatory core is the minimum docs contract (docs/architecture.md + design.md + references/ + adr/, the architect-before-spec gate) plus domain docs, observations, glossary and an optional TO-BE layer. Triggers — \"audit this project\", \"document how this works\", \"reverse-engineer this\", \"pre-SDD docs\", \"respec\".",
-  "private": true
-}

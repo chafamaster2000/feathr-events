@@ -1,6 +1,0 @@
-{
-  "name": "@odaclick/skill-split-subagent-context",
-  "version": "0.1.0",
-  "description": "Use BEFORE invoking Agent({ subagent_type: ... }). Estimates the size of the work the subagent will do (N files, N steps), compares against the threshold in .devworkflow/config.json (default 0.30), and either approves a direct dispatch or returns a list of N smaller sub-prompts to dispatch in parallel — preventing subagent context rot.",
-  "private": true
-}
