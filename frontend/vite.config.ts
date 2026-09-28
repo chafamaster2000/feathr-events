@@ -10,11 +10,23 @@ import { defineConfig } from 'vite'
 // `npm run dev` on the host it falls back to localhost.
 const API_TARGET = process.env.API_TARGET ?? 'http://localhost:8000'
 
+// Compose always sets PUBLIC_HOST, empty when there is no tunnel. An empty list is not
+// the same as no list: Vite reads `[]` as "accept no hostname at all".
+const PUBLIC_HOSTS = (process.env.PUBLIC_HOST ?? '')
+  .split(',')
+  .map((host) => host.trim())
+  .filter(Boolean)
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0', // reachable from outside the container
     port: 5173,
+    // Vite refuses requests whose Host it does not recognise (the DNS-rebinding fix,
+    // CVE-2025-24010). The public hostnames are deployment configuration, not code, so
+    // they arrive through the environment - a domain migration needs the old and the new
+    // name accepted at once. Unset, nothing changes and localhost still works.
+    allowedHosts: PUBLIC_HOSTS.length > 0 ? PUBLIC_HOSTS : undefined,
     // Bind mounts do not deliver inotify events reliably across the boundary, so the
     // watcher polls. Slightly more CPU, but hot reload actually works in Docker.
     watch: { usePolling: true },

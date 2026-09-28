@@ -147,6 +147,9 @@ services:
       # Service name on the compose network, not localhost: the proxy runs inside
       # the container, where localhost is the container itself.
       API_TARGET: http://api:8000
+      # The hostname Vite should accept when the console is served through a tunnel or
+      # reverse proxy. Unset for plain local development.
+      PUBLIC_HOST: ${PUBLIC_HOST:-}
     ports:
       - "${DASHBOARD_PORT:-5173}:5173"
     volumes:
